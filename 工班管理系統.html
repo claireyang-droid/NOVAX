@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Iansui&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Firebase（團隊共用資料同步） -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#EEF2F3;
@@ -360,16 +363,36 @@ function setSyncing(on){
   else { dot.classList.remove('busy'); txt.textContent='資料已同步（團隊共用）'; }
 }
 
+/* ============ Firebase 設定 ============
+   請到 https://console.firebase.google.com 建立專案後，
+   把「專案設定」裡的 firebaseConfig 貼到下面取代預設值。 */
+const firebaseConfig = {
+  apiKey: "AIzaSyD8C_RUFChOlnF6gqYYSsyxvirk0g9AhWM",
+  authDomain: "novax-x-busan.firebaseapp.com",
+  projectId: "novax-x-busan",
+  storageBucket: "novax-x-busan.firebasestorage.app",
+  messagingSenderId: "956758206522",
+  appId: "1:956758206522:web:991c97f0bce7b9dc83ed03"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const FS_COLLECTION = 'novax_data'; // Firestore 集合名稱，可自行更改
+
 async function storeGet(key){
   try{
-    const r = await window.storage.get(key, true);
-    return r ? JSON.parse(r.value) : null;
-  }catch(e){ return null; }
+    const snap = await db.collection(FS_COLLECTION).doc(key).get();
+    if(!snap.exists) return null;
+    const data = snap.data();
+    return (data && typeof data.value === 'string') ? JSON.parse(data.value) : null;
+  }catch(e){ console.error('storage get failed', e); return null; }
 }
 async function storeSet(key, val){
   setSyncing(true);
   try{
-    await window.storage.set(key, JSON.stringify(val), true);
+    await db.collection(FS_COLLECTION).doc(key).set({
+      value: JSON.stringify(val),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
   }catch(e){ console.error('storage set failed', e); showToast('儲存失敗，請重試','err'); }
   finally{ setSyncing(false); }
 }
