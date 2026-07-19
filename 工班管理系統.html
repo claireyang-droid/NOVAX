@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工班管理系統｜車用尿素加注設備</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Iansui&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
+<!-- Firebase（團隊共用資料同步） -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#EEF2F3;
+  --surface:#FFFFFF;
+  --surface-alt:#E4EAEC;
+  --ink:#152634;
+  --ink-soft:#5B6E7C;
+  --ink-faint:#8B9BA7;
+  --primary:#1D4E5F;
+  --primary-dark:#0F323E;
+  --primary-tint:#DCE9EB;
+  --accent:#E2A33D;
+  --accent-tint:#FBEED9;
+  --danger:#C1473A;
+  --danger-tint:#F7E0DD;
+  --warn:#D98F2B;
+  --warn-tint:#FBEBD3;
+  --success:#3F8F5F;
+  --success-tint:#DFEEE3;
+  --neutral:#7A8B98;
+  --neutral-tint:#E7EBEE;
+  --border:#DCE3E6;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(21,38,52,.06), 0 4px 14px rgba(21,38,52,.06);
+  --font-display:'Iansui', system-ui, sans-serif;
+  --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-display);
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+}
+.cell-plain{font-size:13px;color:var(--ink);}
+button{font-family:inherit;cursor:pointer;}
+input,select,textarea{font-family:inherit;font-size:14px;}
+::selection{background:var(--accent-tint);}
+
+/* ---------- Layout ---------- */
+#app{min-height:100vh;display:flex;flex-direction:column;}
+
+.topbar{
+  background:linear-gradient(135deg,var(--primary-dark) 0%, var(--primary) 100%);
+  color:#fff;
+  padding:22px 24px 20px;
+  position:relative;
+  overflow:hidden;
+}
+.topbar::after{
+  content:"";
+  position:absolute;
+  right:-40px;top:-60px;
+  width:220px;height:220px;
+  border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, rgba(226,163,61,.35), transparent 70%);
+}
+.topbar-inner{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;}
+.brand-eyebrow{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin:0 0 6px;
+  font-weight:600;
+}
+.brand-title{font-size:22px;font-weight:900;margin:0;letter-spacing:.01em;}
+.brand-sub{font-size:12.5px;color:rgba(255,255,255,.72);margin:4px 0 0;}
+.sync-pill{
+  display:flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.18);
+  padding:6px 12px;border-radius:999px;
+  font-size:12px;color:rgba(255,255,255,.85);
+  white-space:nowrap;
+}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:#6FD79A;box-shadow:0 0 0 3px rgba(111,215,154,.25);}
+.sync-dot.busy{background:var(--accent);box-shadow:0 0 0 3px rgba(226,163,61,.25);}
+
+.tabs{
+  display:flex;gap:2px;
+  background:var(--primary-dark);
+  padding:0 24px;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.tabs::-webkit-scrollbar{display:none;}
+.tab-btn{
+  background:transparent;border:none;
+  color:rgba(255,255,255,.62);
+  padding:12px 16px 11px;
+  font-size:13.5px;font-weight:600;
+  border-bottom:3px solid transparent;
+  white-space:nowrap;
+  display:flex;align-items:center;gap:7px;
+  transition:color .15s;
+}
+.tab-btn .tab-ico{font-size:15px;}
+.tab-btn:hover{color:#fff;}
+.tab-btn.active{color:#fff;border-bottom-color:var(--accent);}
+
+main{flex:1;max-width:1180px;width:100%;margin:0 auto;padding:22px 20px 60px;}
+
+/* ---------- Cards / Stats ---------- */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:22px;}
+.stat-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 18px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:6px;
+  position:relative;
+}
+.stat-label{font-size:12px;color:var(--ink-soft);font-weight:600;display:flex;align-items:center;gap:6px;}
+.stat-value{font-family:var(--font-mono);font-size:28px;font-weight:600;color:var(--ink);}
+.stat-value small{font-size:13px;color:var(--ink-faint);font-weight:500;}
+.stat-foot{font-size:11.5px;color:var(--ink-faint);}
+
+/* tank-fill gauge, signature element */
+.tank-gauge{
+  width:26px;height:38px;border:2px solid var(--primary);border-radius:4px 4px 6px 6px;
+  position:relative;overflow:hidden;background:var(--surface-alt);flex-shrink:0;
+}
+.tank-gauge::before{
+  content:"";position:absolute;left:0;right:0;bottom:0;
+  height:var(--fill,50%);
+  background:linear-gradient(180deg, #63b98a, var(--success));
+  transition:height .5s ease;
+}
+.tank-gauge::after{
+  content:"";position:absolute;left:2px;right:2px;top:3px;height:2px;background:rgba(255,255,255,.5);
+}
+
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:28px 0 12px;flex-wrap:wrap;}
+.section-head h2{font-size:16px;margin:0;font-weight:700;}
+.section-head .hint{font-size:12px;color:var(--ink-faint);}
+
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.panel-toolbar{display:flex;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;background:var(--surface);}
+.search-input{
+  flex:1;min-width:160px;
+  border:1px solid var(--border);border-radius:8px;padding:8px 12px;
+  background:var(--bg);
+}
+.search-input:focus{outline:2px solid var(--primary-tint);border-color:var(--primary);}
+.filter-select{border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--bg);}
+.btn{
+  border:1px solid transparent;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;transition:transform .1s, box-shadow .15s;
+}
+.btn:active{transform:translateY(1px);}
+.btn-primary{background:var(--primary);color:#fff;}
+.btn-primary:hover{background:var(--primary-dark);}
+.btn-ghost{background:var(--surface);border-color:var(--border);color:var(--ink);}
+.btn-ghost:hover{background:var(--surface-alt);}
+.btn-danger{background:var(--danger-tint);color:var(--danger);}
+.btn-danger:hover{background:#f0c9c3;}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:6px;}
+.btn-icon-only{padding:6px 8px;}
+
+/* ---------- Table ---------- */
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead th{
+  text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--ink-soft);font-weight:700;
+  padding:10px 14px;border-bottom:1px solid var(--border);
+  background:var(--surface-alt);white-space:nowrap;
+}
+tbody td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap;}
+tbody td .cell-main, tbody td .cell-sub, tbody td .cell-mono{white-space:nowrap;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:#F7F9FA;}
+.cell-main{font-weight:600;color:var(--ink);}
+.cell-sub{color:var(--ink-faint);font-size:12px;margin-top:2px;}
+.cell-mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
+.cell-mono.cell-main{font-size:13px;color:var(--ink);}
+.row-actions{display:flex;gap:6px;white-space:nowrap;}
+.empty-state{padding:48px 20px;text-align:center;color:var(--ink-faint);}
+.empty-state .emoji{font-size:30px;display:block;margin-bottom:8px;}
+
+/* badges */
+.badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;
+}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;}
+.badge-red{background:var(--danger-tint);color:var(--danger);}
+.badge-amber{background:var(--warn-tint);color:var(--warn);}
+.badge-green{background:var(--success-tint);color:var(--success);}
+.badge-purple{background:#EBE3F5;color:#7148A6;}
+.badge-grey{background:var(--neutral-tint);color:var(--neutral);}
+
+/* inline status select (可直接於主列表切換狀態) */
+.status-select{
+  border:1px solid transparent;border-radius:999px;
+  padding:5px 24px 5px 10px;font-size:12px;font-weight:700;
+  font-family:inherit;cursor:pointer;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M1 3l4 4 4-4' fill='none' stroke='%235B6E7C' stroke-width='1.4'/></svg>");
+  background-repeat:no-repeat;background-position:right 8px center;background-size:9px;
+}
+.status-select:focus{outline:2px solid var(--primary-tint);}
+.status-select-red{background-color:var(--danger-tint);color:var(--danger);}
+.status-select-amber{background-color:var(--warn-tint);color:var(--warn);}
+.status-select-green{background-color:var(--success-tint);color:var(--success);}
+.status-select-purple{background-color:#EBE3F5;color:#7148A6;}
+.status-select-grey{background-color:var(--neutral-tint);color:var(--neutral);}
+
+/* ---------- 管理維護 tab ---------- */
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+.settings-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:18px;display:flex;flex-direction:column;gap:10px;
+}
+.settings-card .sc-icon{font-size:22px;}
+.settings-card .sc-title{font-size:14.5px;font-weight:700;color:var(--ink);}
+.settings-card .sc-desc{font-size:12px;color:var(--ink-faint);flex:1;}
+.settings-card .sc-count{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-soft);}
+
+/* ---------- Modal ---------- */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(15,26,33,.5);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:5vh 16px;overflow-y:auto;z-index:100;
+  animation:fadeIn .15s ease;
+}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+.modal{
+  background:var(--surface);border-radius:14px;width:100%;max-width:560px;
+  box-shadow:0 20px 60px rgba(15,26,33,.35);
+  animation:slideUp .18s ease;
+}
+@keyframes slideUp{from{transform:translateY(10px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border);}
+.modal-head h3{margin:0;font-size:16px;}
+.modal-close{background:none;border:none;font-size:18px;color:var(--ink-faint);padding:4px 8px;border-radius:6px;}
+.modal-close:hover{background:var(--surface-alt);color:var(--ink);}
+.modal-body{padding:18px 20px;max-height:64vh;overflow-y:auto;}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:16px 20px;border-top:1px solid var(--border);}
+
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.field{display:flex;flex-direction:column;gap:5px;}
+.field.full{grid-column:1/-1;}
+.field label{font-size:12px;font-weight:700;color:var(--ink-soft);}
+.field input,.field select,.field textarea{
+  border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--bg);color:var(--ink);width:100%;
+}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint);}
+.field textarea{resize:vertical;min-height:56px;}
+.repair-items-wrap{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.repair-items-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.repair-items-table th{background:var(--surface-alt);text-align:left;padding:7px 8px;font-weight:600;color:var(--ink-soft);}
+.repair-items-table td{padding:6px 8px;border-top:1px solid var(--border);vertical-align:middle;}
+.repair-items-table input[type="number"], .repair-items-table input[type="text"]{padding:4px 6px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;}
+.repair-items-table input[type="checkbox"]{width:16px;height:16px;}
+.repair-items-total{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-alt);font-size:13px;}
+.repair-items-detail{display:flex;flex-direction:column;gap:4px;}
+.repair-items-detail-row{display:grid;grid-template-columns:1fr auto auto;gap:14px;font-size:13px;}
+.checkbox-row{display:flex;flex-wrap:wrap;gap:8px 14px;padding-top:2px;}
+.checkbox-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;flex:0 0 auto;}
+.checkbox-row input[type="checkbox"]{flex:0 0 auto;}
+
+.list-mgr-rows{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
+.list-mgr-row{display:flex;gap:8px;align-items:center;}
+.list-mgr-row input{flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--bg);}
+.list-mgr-add{display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+.list-mgr-add input{flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--bg);}
+
+/* ---------- Repair item catalog manager ---------- */
+.ric-rows{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;}
+.ric-row{display:grid;grid-template-columns:1.5fr .8fr .8fr auto;gap:8px;align-items:center;}
+.ric-row input, .ric-add input{border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--bg);width:100%;}
+.ric-add{display:grid;grid-template-columns:1.5fr .8fr .8fr auto;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+@media (max-width:560px){.ric-row,.ric-add{grid-template-columns:1fr 1fr;}}
+
+/* ---------- Pie chart (維修品項統計) ---------- */
+.pie-panel{display:flex;gap:26px;padding:20px;align-items:center;flex-wrap:wrap;}
+.pie-chart{width:180px;height:180px;min-width:180px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--border);}
+.pie-legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:220px;}
+.pie-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+.pie-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.pie-legend-name{flex:1;font-weight:600;color:var(--ink);}
+.pie-legend-val{color:var(--ink-soft);font-family:var(--font-mono);font-size:11.5px;white-space:nowrap;}
+
+/* ---------- Toast ---------- */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center;}
+.toast-item{
+  background:var(--primary-dark);color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;
+  box-shadow:0 8px 20px rgba(0,0,0,.2);
+  animation:toastIn .18s ease;
+  display:flex;align-items:center;gap:8px;
+}
+.toast-item.err{background:var(--danger);}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+
+/* ---------- Schedule grid ---------- */
+.week-block{margin-bottom:20px;}
+.week-title{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);margin-bottom:8px;font-weight:600;}
+.sched-table td, .sched-table th{min-width:120px;}
+.sched-cell{
+  border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12.5px;background:var(--bg);
+  min-height:38px;cursor:text;
+}
+.sched-cell:hover{border-color:var(--primary);background:#fff;}
+.sched-cell.empty{color:var(--ink-faint);}
+.sched-worker{font-weight:700;color:var(--primary-dark);white-space:nowrap;}
+
+/* ---------- Overview two-col ---------- */
+.overview-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
+@media (max-width:820px){.overview-grid{grid-template-columns:1fr;}}
+.mini-list{display:flex;flex-direction:column;}
+.mini-row{display:flex;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border);align-items:flex-start;}
+.mini-row:last-child{border-bottom:none;}
+.mini-row .t{font-weight:600;font-size:13px;}
+.mini-row .s{font-size:11.5px;color:var(--ink-faint);margin-top:2px;}
+.panel-title-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);}
+.panel-title-row h3{margin:0;font-size:14px;font-weight:700;}
+.link-btn{background:none;border:none;color:var(--primary);font-size:12px;font-weight:700;}
+
+footer.app-footer{text-align:center;padding:20px;color:var(--ink-faint);font-size:11.5px;}
+
+/* ---------- Import (Excel) ---------- */
+.import-modal{max-width:720px;}
+.import-drop{
+  border:2px dashed var(--border);border-radius:10px;padding:26px;text-align:center;color:var(--ink-soft);
+  background:var(--bg);cursor:pointer;transition:border-color .15s,background .15s;
+}
+.import-drop:hover{border-color:var(--primary);background:var(--primary-tint);}
+.import-drop .emoji{font-size:26px;display:block;margin-bottom:8px;}
+.map-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px;}
+.map-table th{text-align:left;padding:8px 10px;color:var(--ink-soft);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);}
+.map-table td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.map-table select{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;}
+.map-src{font-weight:700;color:var(--ink);}
+.map-sample{color:var(--ink-faint);font-size:11.5px;margin-top:2px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.map-status{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+.map-status.ok{background:var(--success-tint);color:var(--success);}
+.map-status.skip{background:var(--neutral-tint);color:var(--neutral);}
+.import-summary{display:flex;gap:16px;padding:12px 0;font-size:12.5px;color:var(--ink-soft);flex-wrap:wrap;}
+.import-summary b{color:var(--ink);}
+.sheet-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 4px;}
+.sheet-tab{border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;color:var(--ink-soft);}
+.sheet-tab.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+
+/* ---------- Detail view ---------- */
+tr.row-clickable{cursor:pointer;}
+.detail-list{display:flex;flex-direction:column;}
+.detail-row{display:grid;grid-template-columns:150px 1fr;gap:14px;padding:11px 0;border-bottom:1px solid var(--border);}
+.detail-row:last-child{border-bottom:none;}
+.detail-label{font-size:12px;font-weight:700;color:var(--ink-soft);padding-top:1px;}
+.detail-value{font-size:13.5px;color:var(--ink);word-break:break-word;}
+.detail-empty{color:var(--ink-faint);}
+@media (max-width:520px){.detail-row{grid-template-columns:1fr;gap:3px;}}
+
+@media (max-width:600px){
+  .field-grid{grid-template-columns:1fr;}
+  .topbar{padding:18px 16px;}
+  main{padding:16px 12px 50px;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div>
+        <p class="brand-eyebrow">AdBlue / DEF Service Ops</p>
+        <h1 class="brand-title">工班管理系統</h1>
+        <p class="brand-sub">車用尿素加注設備・維修 / 裝機 / 清洗 / 排班 / 貨車調度</p>
+      </div>
+      <div class="sync-pill"><span class="sync-dot" id="syncDot"></span><span id="syncText">資料已同步（團隊共用）</span></div>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+  <main id="content"></main>
+  <footer class="app-footer">內部工班管理工具・所有編輯即時儲存並與團隊共用</footer>
+</div>
+<div id="modalRoot"></div>
+<div id="toast"></div>
+<input type="file" id="importFileInput" accept=".xlsx,.xls,.csv" style="display:none">
+
+<script>
+/* ============ Seed Data (initial import from Excel) ============ */
+const SEED_REPAIRS = [{"維修狀況": "轉尚恩", "備註": "", "客戶編號": "C2009351", "製單人員名稱": "萬芷綺", "出庫保固": "2027/11/01", "使用類別": "保固內", "報修日期": "2026/07/06", "報修單號": "202607060002", "貨品名稱": "i-Depot 建罝", "貨單單號": "", "客戶名稱": "台糖-鳳凰站", "貨品序號": "(GAS-0447)", "地址": "(GAS-0447)台中市大里區鳳凰路50號 站長 04-24915996", "狀況描述": "尿素機無法連線電腦,重關機也一樣", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2024/01/18", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2009361", "製單人員名稱": "萬芷綺", "出庫保固": "2027/11/01", "使用類別": "保固內", "報修日期": "2026/07/07", "報修單號": "202607070005", "貨品名稱": "i-Depot 建罝", "貨單單號": "", "客戶名稱": "台糖-曾文站", "貨品序號": "", "地址": "(GAS-0472) 台南市善化區溪底寮67號 站長 06-5811421", "狀況描述": "與積慧約11點 一同到站上處理連線問題", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/06/05", "結案日期": ""}, {"維修狀況": "待修", "備註": "", "客戶編號": "C2001112", "製單人員名稱": "劉夢蓉", "出庫保固": "2024/08/10", "使用類別": "保固外", "報修日期": "2026/07/10", "報修單號": "202607100001", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "台亞-八里站", "貨品序號": "", "地址": "(GAS-0115)  新北市八里區中華路2段381號 02-26104057/張站長", "狀況描述": "液位計沒有過電，需重新拉線", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/08/11", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2003714", "製單人員名稱": "劉夢蓉", "出庫保固": "2024/06/06", "使用類別": "保固外", "報修日期": "2026/07/13", "報修單號": "202607130001", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "統一精工-左營站", "貨品序號": "(GAS-0310)", "地址": "(GAS-0310)高雄市左營區民族一路936號 楊金英 站長0937-620-264", "狀況描述": "改管移桶子", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2022/06/07", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2005001", "製單人員名稱": "萬芷綺", "出庫保固": "", "使用類別": "保固外", "報修日期": "2026/07/13", "報修單號": "202607130007", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "歐盟能源股份有限公司歐盟長興路營業所", "貨品序號": "(GAS-0211)", "地址": "(GAS-0211)桃園市蘆竹區營盤里長興路一段８９號", "狀況描述": "颱風把補充尿素的罐子固定在牆上的鎖崩斷了三根", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "", "結案日期": ""}, {"維修狀況": "轉嘉油", "備註": "", "客戶編號": "C2003707", "製單人員名稱": "劉夢蓉", "出庫保固": "2024/08/10", "使用類別": "保固外", "報修日期": "2026/07/14", "報修單號": "202607140003", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "統一精工-永康三站", "貨品序號": "", "地址": "(GAS-0374) 台南市永康區中正北路308號  站長 06 253-6369", "狀況描述": "訊號微弱，重啟無效，時好時壞", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/08/11", "結案日期": ""}, {"維修狀況": "轉嘉油", "備註": "", "客戶編號": "C5003405", "製單人員名稱": "彭如卿", "出庫保固": "2025/12/12", "使用類別": "保固外", "報修日期": "2026/07/14", "報修單號": "202607140005", "貨品名稱": "標準加注設備", "貨單單號": "", "客戶名稱": "五崧捷運-雲林站", "貨品序號": "", "地址": "(STS-005)雲林站  雲林縣斗六市虎溪里興隆路636號 05-5517313#5605/林鈺祥0960-517-117", "狀況描述": "尿素流速非常慢!!!", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C3001611", "製單人員名稱": "劉夢蓉", "出庫保固": "2025/12/12", "使用類別": "保固外", "報修日期": "2026/07/14", "報修單號": "202607140007", "貨品名稱": "標準加注設備", "貨單單號": "", "客戶名稱": "裕益新竹廠", "貨品序號": "", "地址": "新龍汽車  新竹市天府路一段462號旁/陳天浩0932-116348 沿海路上", "狀況描述": "更換包砂管(連接桶槽的)", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2003740", "製單人員名稱": "劉夢蓉", "出庫保固": "2025/08/15", "使用類別": "保固外", "報修日期": "2026/07/15", "報修單號": "202607150001", "貨品名稱": "i-Depot 建罝", "貨單單號": "", "客戶名稱": "統一精工-路竹站", "貨品序號": "(GAS-0521)", "地址": "(GAS-0521) 高雄市路竹區環球路305號 站長 07-6965238", "狀況描述": "改管改六噸桶", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2024/08/16", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2002501", "製單人員名稱": "萬芷綺", "出庫保固": "2020/02/01", "使用類別": "保固外", "報修日期": "2026/07/15", "報修單號": "202607150006", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "思源/信誠加油站實業有限公司", "貨品序號": "(GAS-0010)", "地址": "(GAS-0010) 新北市五股區新五路2段258號  林世全協理0977047595", "狀況描述": "網路訊號微弱,重新開機也一樣", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2018/02/02", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C3000613", "製單人員名稱": "劉夢蓉", "出庫保固": "2024/02/12", "使用類別": "保固外", "報修日期": "2026/07/15", "報修單號": "202607150007", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "和泰/新店客運-青潭站", "貨品序號": "(SDBUS-002)", "地址": "(SDBUS-002)新店客運-青潭站-新北市新店區新烏路一段26巷35號 鄭凱元/0939152579", "狀況描述": "訊號微弱無法加注，時好時壞", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/03/01", "結案日期": ""}, {"維修狀況": "待修", "備註": "待液位管到貨", "客戶編號": "C5087402", "製單人員名稱": "彭如卿", "出庫保固": "2025/12/12", "使用類別": "保固外", "報修日期": "2026/07/16", "報修單號": "202607160001", "貨品名稱": "標準加注設備", "貨單單號": "", "客戶名稱": "力泰建設企業股份有限公司", "貨品序號": "", "地址": "新北市汐止區彰樹二路43號/林照規先生0928-845135", "狀況描述": "2噸尿素桶異位管斷裂，請排員更換，謝謝!!", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C2002000", "製單人員名稱": "萬芷綺", "出庫保固": "2022/01/18", "使用類別": "保固外", "報修日期": "2026/07/16", "報修單號": "202607160002", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "宏大加油站股份有限公司", "貨品序號": "(GAS-0008)", "地址": "(GAS-0008) 桃園市中壢區中園路192-2號 吳小姐03-4520020", "狀況描述": "從上次維修完後,系統訊號微弱,讀卡慢,感應慢,客戶一直報怨,而且此情況已經很久了", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2018/01/19", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2009361", "製單人員名稱": "萬芷綺", "出庫保固": "2027/11/01", "使用類別": "保固內", "報修日期": "2026/07/17", "報修單號": "202607170001", "貨品名稱": "i-Depot 建罝", "貨單單號": "", "客戶名稱": "台糖-曾文站", "貨品序號": "", "地址": "(GAS-0472) 台南市善化區溪底寮67號 站長 06-5811421", "狀況描述": "尿素機無法與電腦連線", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/06/05", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C3002405", "製單人員名稱": "劉夢蓉", "出庫保固": "2026/06/30", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170002", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "偉聯桃園", "貨品序號": "(ATI-005)", "地址": "(ATI-005) 桃園市平鎮區快速路三段999巷21號", "狀況描述": "馬達沒運轉，無法加注", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2025/07/01", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C3000112", "製單人員名稱": "劉夢蓉", "出庫保固": "2023/09/19", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170003", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "竣達三重汽車-林口站", "貨品序號": "(SC-012)", "地址": "(SC-012)林口站 新北市林口區中華路9號  楊式龍0952-550-116", "狀況描述": "沒有公升數", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2022/09/20", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C2001114", "製單人員名稱": "劉夢蓉", "出庫保固": "2024/08/10", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170004", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "台亞-湖口北上站", "貨品序號": "", "地址": "(GAS-0136)新竹縣湖口鄉榮光路158號之1(湖口服務區) 03-5986184 李清楨站長", "狀況描述": "可加注，但沒有公升及金額", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/08/11", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C3001804", "製單人員名稱": "劉夢蓉", "出庫保固": "2019/08/31", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170005", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "龍福國際-泰山站", "貨品序號": "(LF-005)", "地址": "泰山站 (LF-005) 新北市泰山區泰山路33號（在東洋輪胎行隔壁）/張站長02-2909-5695", "狀況描述": "液位異常", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2018/09/01", "結案日期": ""}, {"維修狀況": "轉嘉油", "備註": "", "客戶編號": "C2009363", "製單人員名稱": "萬芷綺", "出庫保固": "2027/11/01", "使用類別": "保固內", "報修日期": "2026/07/17", "報修單號": "202607170006", "貨品名稱": "i-Depot 建罝", "貨單單號": "", "客戶名稱": "台糖-樹安站", "貨品序號": "", "地址": "(GAS-0474) 731台南市後壁區中寮29之30號 066353862 站長", "狀況描述": "尿素設定金額，金額到ㄧ樣有出尿素", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/06/05", "結案日期": ""}, {"維修狀況": "已完修", "備註": "", "客戶編號": "C2004322", "製單人員名稱": "萬芷綺", "出庫保固": "2025/02/16", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170010", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "福懋-快官站", "貨品序號": "(GAS-0281)", "地址": "(GAS-0281)彰化縣彰化市彰南路四段11號", "狀況描述": "尿素機鑰匙打不開", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2022/02/17", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C2005600", "製單人員名稱": "萬芷綺", "出庫保固": "2021/07/29", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170013", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "興榮加油站/健安", "貨品序號": "(GAS-0169)", "地址": "(GAS-0169)桃園市大溪區南興里永昌路50號", "狀況描述": "尿素槍脫落,無法接回", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2020/07/30", "結案日期": ""}, {"維修狀況": "維修中", "備註": "", "客戶編號": "C2002500", "製單人員名稱": "楊子誼", "出庫保固": "2024/08/10", "使用類別": "保固外", "報修日期": "2026/07/17", "報修單號": "202607170014", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "思源/長庚加油站實業有限公司", "貨品序號": "", "地址": "(GAS-0067) 桃園市龜山區文化一路103號 03-328-9296 賴站長", "狀況描述": "桶槽清洗作業(不收費)", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/08/11", "結案日期": ""}, {"維修狀況": "待修", "備註": "", "客戶編號": "C2003705", "製單人員名稱": "楊子誼", "出庫保固": "2024/08/10", "使用類別": "保固外", "報修日期": "2026/07/18", "報修單號": "202607180001", "貨品名稱": "i-Depot 建罝費一式", "貨單單號": "", "客戶名稱": "統一精工-華亞站", "貨品序號": "", "地址": "(GAS-0142)330桃園市龜山區文化一路86-5號  03 327 3008", "狀況描述": "桶槽清洗作業(不收費)", "維修描述": "", "維修金額": "", "維修人員1名稱": "", "發票號碼": "", "出庫日期": "2023/08/11", "結案日期": ""}];
+const SEED_TANKS = [{"no": 1, "station_id": "(GAS-0001)", "station": "華碩加油站股份有限公司", "status": "", "address": "桃園市桃園區大興西路三段783號"}, {"no": 2, "station_id": "(GAS-0006)", "station": "苗交充電加油站股份有限公司", "status": "", "address": "苗栗縣公館鄉五谷村五谷７６之１號 0911-334060陳孟全"}, {"no": 3, "station_id": "(GAS-0007)", "station": "長榮國際-加油站", "status": "已清洗", "address": "桃園市經國路899號/03-357-1343  F-357-1344  油品部 王先生"}, {"no": 4, "station_id": "(GAS-0008)", "station": "宏大加油站股份有限公司", "status": "已清洗", "address": "桃園市中壢區中園路192-2號 吳小姐03-4520020"}, {"no": 5, "station_id": "(GAS-0009)", "station": "鼎宏-順安加油站", "status": "", "address": "花蓮縣新城鄉順安村草林1-25號"}, {"no": 6, "station_id": "(GAS-0010)", "station": "思源/信誠加油站實業有限公司", "status": "已清洗", "address": "新北市五股區新五路2段258號  林世全協理0977047595"}, {"no": 7, "station_id": "(GAS-0011)", "station": "永信長源加油站", "status": "", "address": "新竹縣新埔鎮下寮里義民路3段799號-03-5896268"}, {"no": 8, "station_id": "(GAS-0012)", "station": "宏大加油站股份有限公司新屋交流道站", "status": "已清洗", "address": "桃園市中壢區五權里三民路一段2號 03-4953020 劉德欽"}, {"no": 9, "station_id": "(GAS-0014)", "station": "北海一站", "status": "已清洗", "address": "新竹縣湖口鄉光華路650號 徐水源 0937-131058"}, {"no": 10, "station_id": "(GAS-0016)", "station": "史丹尼斯/百福加油站", "status": "已清洗", "address": "基隆市七堵區南街45-1號 0988-055981 劉站長"}, {"no": 11, "station_id": "(GAS-0017)", "station": "思源/龍門加油站實業有限公司", "status": "已清洗", "address": "桃園市龍潭區大昌路二段13號 0927-039088/李茂榕"}, {"no": 12, "station_id": "(GAS-0018)", "station": "聖豐加油站有限公司", "status": "已清洗", "address": "新竹縣湖口鄉光華路433號 03-5986716 葉先生"}, {"no": 13, "station_id": "(GAS-0019)", "station": "經國能源股份有限公司", "status": "", "address": "236 新北市土城區中央路三段83號 蔡經理 02 2268-1105"}, {"no": 14, "station_id": "(GAS-0020)", "station": "思源/龍形加油站實業有限公司", "status": "已清洗", "address": "新北市八里區龍米路2段150號02-86302558 李小姐"}, {"no": 15, "station_id": "(GAS-0021)", "station": "中泰加油站實業有限公司", "status": "", "address": "新北市泰山區泰林路二段32號 02 2296-6556"}, {"no": 16, "station_id": "(GAS-0023)", "station": "鼎宏-信義加油站", "status": "", "address": "信義加油站 花蓮縣玉里鎮興國路一段26號 符小姐03 888 7555"}, {"no": 17, "station_id": "(GAS-0025)", "station": "華通石油/全鋒-名興站", "status": "", "address": "桃園市觀音區成功路二段1690號"}, {"no": 18, "station_id": "(GAS-0026)", "station": "華通石油/全鋒-台茂站", "status": "已清洗", "address": "台茂站  桃園市蘆竹區長興路三段256號  03 324-6439"}, {"no": 19, "station_id": "(GAS-0027)", "station": "奕榮加油站有限公司", "status": "已清洗", "address": "苗栗縣頭份市永貞路一段22號 鄭淑芬 0911-304-208"}, {"no": 20, "station_id": "(GAS-0030)", "station": "正新加油站股份有限公司", "status": "已清洗", "address": "新竹縣關西鎮仁安里牛欄河63-5號 廖啟宏 03-5873103"}, {"no": 21, "station_id": "(GAS-0031)", "station": "協榮加油站有限公司", "status": "已清洗", "address": "新竹縣竹北市尚義里13鄰西濱路二段508號 曾老板 03-5561499"}, {"no": 22, "station_id": "(GAS-0037)", "station": "金滿益加油站", "status": "已清洗", "address": "金滿益 新北市淡水區淡金路101號 02-8631-8779"}, {"no": 23, "station_id": "(GAS-0042)", "station": "長壽山加油站股份有限公司", "status": "已清洗", "address": "新北市三峽區介壽路三段131號 02-86762109/張鈞凱"}, {"no": 24, "station_id": "(GAS-0043)", "station": "竹科加油站有限公司", "status": "已清洗", "address": "新竹縣寶山鄉大雅路二段147號"}, {"no": 25, "station_id": "(GAS-0051)", "station": "佑順加油站(股)公司", "status": "", "address": "新竹縣竹北市中華路1號 03 551-7818 羅小姐"}, {"no": 26, "station_id": "(GAS-0062)", "station": "林長企業股份有限公司", "status": "已清洗", "address": "新北市瑞芳區瑞濱路32之6號 02-2496-6888 林宥妤"}, {"no": 27, "station_id": "(GAS-0063)", "station": "光美加油站有限公司", "status": "", "address": "苗栗縣竹南鎮公義路2433-11號 037-582188 蔡站長"}, {"no": 28, "station_id": "(GAS-0067)", "station": "思源/長庚加油站實業有限公司", "status": "已出單", "address": "桃園市龜山區文化一路103號 03-328-9296 賴站長"}, {"no": 29, "station_id": "(GAS-0068)", "station": "廣源加油站股份有限公司", "status": "", "address": "新竹縣芎林鄉富林路3段147號 03-5923038"}, {"no": 30, "station_id": "(GAS-0070)", "station": "思源/建德加油站實業股份有限公司", "status": "已清洗", "address": "新北市石碇區文山路一段9號 林世全 02-2663-3377"}, {"no": 31, "station_id": "(GAS-0071)", "station": "柑園-樹林站", "status": "已清洗", "address": "新北市樹林區佳園路二段47號 02-2680-3001 李小姐 到貨前請先連繫站長"}, {"no": 32, "station_id": "(GAS-0074)", "station": "台亞-貢寮站", "status": "已清洗", "address": "新北市貢寮區香蘭街2-1號  黃站長 02-24991737"}, {"no": 33, "station_id": "(GAS-0075)", "station": "士香加油站股份有限公司", "status": "已清洗", "address": "桃園市大溪區仁愛里員林路一段226號 蔡金良經理 0918280508"}, {"no": 34, "station_id": "(GAS-0078)", "station": "茄苳加油站股份有限公司", "status": "", "address": "新竹市香山區茄苳里五福路二段900號"}, {"no": 35, "station_id": "(GAS-0079)", "station": "新馬加油站", "status": "已清洗", "address": "新馬加油站 宜蘭縣蘇澳鎮永榮里蘇濱路二段566號 陳老闆"}, {"no": 36, "station_id": "(GAS-0080)", "station": "新城加油站", "status": "", "address": "宜蘭縣冬山鄉東城村冬山路1段420號  03-959-3701呂老闆"}, {"no": 37, "station_id": "(GAS-0080B)", "station": "新城加油站二島", "status": "", "address": "宜蘭縣冬山鄉東城村冬山路1段420號 03-959-3701陳老闆"}, {"no": 38, "station_id": "(GAS-0081)", "station": "台亞-林口二站", "status": "已清洗", "address": "林口南站  桃園縣龜山鄉公西村忠義路三段167號 03-3279406 胡站長"}, {"no": 39, "station_id": "(GAS-0082)", "station": "世盛加油站有限公司", "status": "", "address": "桃園市蘆竹區大新路267號 范揚旺 03-3137308"}, {"no": 40, "station_id": "(GAS-0085)", "station": "祥順加油站企業有限公司", "status": "", "address": "桃園市平鎮區中豐路一段255號  03-468-6969"}, {"no": 41, "station_id": "(GAS-0092)", "station": "統一精工-桃機站", "status": "已清洗", "address": "桃機站 337桃園市大園區三民路一段787號  03-3936480/承軒"}, {"no": 42, "station_id": "(GAS-0094)", "station": "山隆-大溪站", "status": "已清洗", "address": "桃園市大溪區永昌路105號 03-3074683 周偉翔站長"}, {"no": 43, "station_id": "(GAS-0095)", "station": "中油濱江大直站", "status": "", "address": "台北市松山區濱江街373號 02-25177975/陳站長"}, {"no": 44, "station_id": "(GAS-0101)", "station": "統一精工-林口二站", "status": "", "address": "林口二站  244新北市林口區粉寮路一段121號  02-26019750/黃站長"}, {"no": 45, "station_id": "(GAS-0102)", "station": "長利加油站有限公司", "status": "", "address": "苗栗縣頭份市山下里中華路1686號 037-689092/黃先生"}, {"no": 46, "station_id": "(GAS-0106)", "station": "長成加油站有限公司", "status": "", "address": "苗栗縣南庄鄉員林庄下員林68-3號  037 831-906  羅站長"}, {"no": 47, "station_id": "(GAS-0108)", "station": "山隆-龍德站", "status": "", "address": "宜蘭縣蘇澳鎮自強路1-1號  站長 03-990-9633"}, {"no": 48, "station_id": "(GAS-0109)", "station": "友仁股份有限公司", "status": "", "address": "桃園市龜山區復興一路201號 03 211-5539"}, {"no": 49, "station_id": "(GAS-0111)", "station": "斗煥和昌加油站有限公司", "status": "", "address": "苗栗縣頭份市中正二路72號 0972-881-568/劉先生"}, {"no": 50, "station_id": "(GAS-0112)", "station": "柑園-楊梅站", "status": "", "address": "桃園市楊梅區中山北路一段43號 03-4882036/許為痒"}, {"no": 51, "station_id": "(GAS-0114)", "station": "山隆-林口站", "status": "", "address": "新北市林口區文化二路二段553號  02-86011805/莫站長"}, {"no": 52, "station_id": "(GAS-0115)", "station": "台亞-八里站", "status": "", "address": "新北市八里區中華路2段381號 02-26104057/張站長"}, {"no": 53, "station_id": "(GAS-0116)", "station": "統一精工-國際二站", "status": "", "address": "國際二站 桃園市桃園區國際路二段495號  03-3412551/古美蓮站長"}, {"no": 54, "station_id": "(GAS-0117)", "station": "思源/東林加油站實業股份有限公司", "status": "", "address": "新北市鶯歌區中正一路461之5號  02-86773511/陳先生"}, {"no": 55, "station_id": "(GAS-0118)", "station": "山隆-蘆竹站", "status": "", "address": "桃園市蘆竹區南崁路二段532號  03-3229609 李站長"}, {"no": 56, "station_id": "(GAS-0120)", "station": "統一精工-中壢站", "status": "", "address": "中壢站  桃園市中壢區五權里志廣路311號 0932-929858 吳明緯"}, {"no": 57, "station_id": "(GAS-0121)", "station": "思源/明志加油站實業股份有限公司(東南站)", "status": "", "address": "東南站 新北市深坑區北深路三段25巷14號 02-2662-9588 姚站長"}, {"no": 58, "station_id": "(GAS-0122)", "station": "百祥加油站股份有限公司", "status": "", "address": "300 新竹市中華路五段111號 03-5387876"}, {"no": 59, "station_id": "(GAS-0123)", "station": "昇陽加油站(已停用)", "status": "", "address": "238   新北市樹林區中華路190號  蔡站長"}, {"no": 60, "station_id": "(GAS-0124)", "station": "廣進-大埔加油站", "status": "", "address": "266宜蘭縣三星鄉三星路一段435號 站長03-9899521＜要找穿藍色制服的簽章＞"}, {"no": 61, "station_id": "(GAS-0125)", "station": "廣進-廣進加油站", "status": "", "address": "宜蘭市中山路一段116號 站長 039 252-958"}, {"no": 62, "station_id": "(GAS-0128)", "station": "北海產業有限公司", "status": "已清洗", "address": "桃園市新屋區新屋里三民路61號"}, {"no": 63, "station_id": "(GAS-0130)", "station": "鼎宏-北基五堵站", "status": "", "address": "基隆市七堵區明德三路102號   02-24518513 吳站長"}, {"no": 64, "station_id": "(GAS-0132)", "station": "台亞-花蓮機場站", "status": "", "address": "花蓮縣新城鄉嘉新路178號 03-824-6971 站長"}, {"no": 65, "station_id": "(GAS-0134)", "station": "山隆-苗栗站", "status": "", "address": "苗栗縣銅鑼鄉中隆一路1之1號 03 723 4529 胡家溱站長 0980-216-613"}, {"no": 66, "station_id": "(GAS-0135)", "station": "慶林股份有限公司", "status": "", "address": "好客加油站  新竹縣芎林鄉富林路三段360號 03-5928981/羅緯杰站長"}, {"no": 67, "station_id": "(GAS-0136)", "station": "台亞-湖口北上站", "status": "", "address": "新竹縣湖口鄉榮光路158號之1(湖口服務區) 03-5986184 李清楨站長"}, {"no": 68, "station_id": "(GAS-0138)", "station": "山隆-富豐站", "status": "", "address": "桃園市平鎮區快速路二段1110號"}, {"no": 69, "station_id": "(GAS-0139)", "station": "山隆-中壢站", "status": "", "address": "桃園市中壢區吉林路5-3號 03-4617151 陳宜君站長"}, {"no": 70, "station_id": "(GAS-0142)", "station": "統一精工-華亞站", "status": "已出單", "address": "330桃園市龜山區文化一路86-5號  03 327 3008"}, {"no": 71, "station_id": "(GAS-0143)", "station": "中油大園民生站", "status": "", "address": "桃園市大園區橫峰里1鄰民生南路163號  03 385-6171柳站長"}, {"no": 72, "station_id": "(GAS-0144)", "station": "允用加油站股份有限公司", "status": "", "address": "苗栗縣苑裡鎮房裡里6鄰南房69之5號"}, {"no": 73, "station_id": "(GAS-0146)", "station": "台亞-湖口南下站", "status": "", "address": "新竹縣湖口鄉鳳山村國強街1巷8號之1(湖口服務區) 03-5987221 劉美怡站長"}, {"no": 74, "station_id": "(GAS-0147)", "station": "山隆-大園站", "status": "", "address": "桃園市大園區民生路79號"}, {"no": 75, "station_id": "(GAS-0149)", "station": "思源/思源加油站企業股份有限公司", "status": "", "address": "思源思源站  新北市樹林區三興路50號"}, {"no": 76, "station_id": "(GAS-0150)", "station": "四十張加油站股份有限公司", "status": "", "address": "新北市中和區連城路629號02 2221-8723"}, {"no": 77, "station_id": "(GAS-0152)", "station": "福德路加油站有限公司", "status": "", "address": "桃園市八德區大發里福德一路498號"}, {"no": 78, "station_id": "(GAS-0156)", "station": "福懋-中壢站", "status": "", "address": "桃園市中壢區三民里中正路二段139號"}, {"no": 79, "station_id": "(GAS-0160)", "station": "佳園加油站有限公司", "status": "", "address": "桃園市八德區福德一路395號"}, {"no": 80, "station_id": "(GAS-0161)", "station": "進泰機車工業有限公司", "status": "", "address": "進泰加油站  苗栗縣造橋鄉談文村仁愛路18-1號"}, {"no": 81, "station_id": "(GAS-0166)", "station": "統一精工-基隆站", "status": "", "address": "204 基隆市安樂區基金一路346號 金緯琪 0917289818"}, {"no": 82, "station_id": "(GAS-0169)", "station": "興榮加油站/健安", "status": "", "address": "桃園市大溪區南興里永昌路50號"}, {"no": 83, "station_id": "(GAS-0174)", "station": "林建勝-南聖湖加油站", "status": "", "address": "宜蘭縣蘇澳鎮中山路二段399號"}, {"no": 84, "station_id": "(GAS-0177)", "station": "台亞-明德站", "status": "", "address": "基隆市七堵區明德一路238號 02-24551214 趙宇屏站長"}, {"no": 85, "station_id": "(GAS-0180)", "station": "嘉富加油站有限公司", "status": "", "address": "桃園市蘆竹區內厝村一鄰南山路二段46號"}, {"no": 86, "station_id": "(GAS-0182)", "station": "台亞-汐止好市多站", "status": "", "address": "新北市汐止區大同路一段154號 02-26419309 蘇惠珍站長"}, {"no": 87, "station_id": "(GAS-0184)", "station": "西歐-大直橋加油加氣站", "status": "", "address": "10491台北市中山區濱江街333號"}, {"no": 88, "station_id": "(GAS-0187)", "station": "台亞-林口中山站", "status": "", "address": "新北市林口區湖南里文化三路二段300號 02-26019341 胡峰嘉站長"}, {"no": 89, "station_id": "(GAS-0189)", "station": "新慰加油站股份有限公司", "status": "", "address": "新竹縣湖口鄉新興路780號"}, {"no": 90, "station_id": "(GAS-0192)", "station": "嘉昕加油站", "status": "", "address": "桃園市八德區介壽路二段631號"}, {"no": 91, "station_id": "(GAS-0193)", "station": "六家加油站股份有限公司", "status": "", "address": "302新竹縣竹北市自強南路350號"}, {"no": 92, "station_id": "(GAS-0194)", "station": "永信中石油加油站", "status": "", "address": "苗栗縣苗栗市國華路736號"}, {"no": 93, "station_id": "(GAS-0196)", "station": "信政股份有限公司", "status": "", "address": "新竹縣芎林鄉文林村14鄰富林路二段113號"}, {"no": 94, "station_id": "(GAS-0197)", "station": "經國能源股份有限公司平鎮分公司", "status": "", "address": "桃園市平鎮區金陵路五段230號  0976-108-538 鄭站長"}, {"no": 95, "station_id": "(GAS-0198)", "station": "豐富加油站/新千禧企業有限公司", "status": "", "address": "苗栗縣後龍鎮豐富里造豐路5鄰170號 037-722422  站長"}, {"no": 96, "station_id": "(GAS-0199)", "station": "北海二站", "status": "", "address": "新竹縣湖口鄉波羅村光華路422號"}, {"no": 97, "station_id": "(GAS-0200)", "station": "清溪加油站有限公司", "status": "", "address": "新北市三峽區溪東路 89 號"}, {"no": 98, "station_id": "(GAS-0202)", "station": "和源加油站股份有限公司", "status": "", "address": "苗栗縣頭屋鄉頭屋村24鄰尖豐路141-11號"}, {"no": 99, "station_id": "(GAS-0203)", "station": "名揚加油站股份有限公司", "status": "", "address": "桃園市桃園區富國路590號"}, {"no": 100, "station_id": "(GAS-0204)", "station": "新華加油站有限公司", "status": "", "address": "苗栗縣頭份市新華里9鄰中正一路268號"}, {"no": 101, "station_id": "(GAS-0205)", "station": "幼獅加油站有限公司", "status": "", "address": "桃園市楊梅區高上路1段112號"}, {"no": 102, "station_id": "(GAS-0207)", "station": "宏苗加油站股份有限公司", "status": "", "address": "苗栗市新川里圓墩3-15號"}, {"no": 103, "station_id": "(GAS-0209)", "station": "高榮加油站股份有限公司", "status": "", "address": "桃園市楊梅區高榮里高上路一段558號"}, {"no": 104, "station_id": "(GAS-0210)", "station": "仕博加油站有限公司", "status": "", "address": "桃園市大園區埔心里中正東路1段287號"}, {"no": 105, "station_id": "(GAS-0211)", "station": "歐盟能源股份有限公司歐盟長興路營業所", "status": "", "address": "桃園市蘆竹區營盤里長興路一段８９號"}, {"no": 106, "station_id": "(GAS-0213)", "station": "南興加油站/國道", "status": "", "address": "桃園市大溪區南興里19鄰永昌路330號"}, {"no": 107, "station_id": "(GAS-0216)", "station": "統一精工-花蓮站", "status": "", "address": "花蓮縣吉安鄉海岸路969號"}, {"no": 108, "station_id": "(GAS-0217)", "station": "台大加油站/枋寮", "status": "", "address": "新竹縣竹北市自強北路153號"}, {"no": 109, "station_id": "(GAS-0219)", "station": "后庄站/十方", "status": "", "address": "苗栗縣頭份鎮後庄里21鄰八德一路185號"}, {"no": 110, "station_id": "(GAS-0224)", "station": "公加油站股份有限公司", "status": "", "address": "苗栗縣公館鄉館南村9鄰館南253之1號"}, {"no": 111, "station_id": "(GAS-0225)", "station": "永安海濱加油站", "status": "已清洗", "address": "桃園市新屋區永安里12鄰永福路850號"}, {"no": 112, "station_id": "(GAS-0231)", "station": "正塘加油站有限公司", "status": "", "address": "新竹市港北里西濱路1段45號"}, {"no": 113, "station_id": "(GAS-0238)", "station": "台亞-化成路站", "status": "", "address": "新北市新莊區新北大道二段167號"}, {"no": 114, "station_id": "(GAS-0240)", "station": "台亞-深坑站", "status": "", "address": "新北市深坑區文山路三段110號"}, {"no": 115, "station_id": "(GAS-0243)", "station": "台亞-萬里站", "status": "", "address": "新北市萬里區萬里加投83號"}, {"no": 116, "station_id": "(GAS-0258)", "station": "台亞-文中站", "status": "", "address": "桃園市桃園區文中路666號"}, {"no": 117, "station_id": "(GAS-0263)", "station": "玉泉村加油站", "status": "", "address": "苗栗縣公館鄉玉泉村8鄰玉泉211-3號"}, {"no": 118, "station_id": "(GAS-0267)", "station": "富源加油站/富元", "status": "已清洗", "address": "桃園市新屋區頭洲里民族路六段435號"}, {"no": 119, "station_id": "(GAS-0269)", "station": "福懋-楊梅站", "status": "", "address": "桃園市楊梅區中山北路一段301號03 475-3717站長"}, {"no": 120, "station_id": "(GAS-0271)", "station": "永加加油站", "status": "", "address": "桃園市蘆竹區海山路一段88號"}, {"no": 121, "station_id": "(GAS-0277)", "station": "豫章加油站", "status": "", "address": "桃園市新屋區新生里三民路455號"}, {"no": 122, "station_id": "(GAS-0278)", "station": "旭昇加油站", "status": "", "address": "桃園市觀音區保障里8鄰成功路1段188號"}, {"no": 123, "station_id": "(GAS-0280)", "station": "福懋-頭份站", "status": "", "address": "苗栗縣頭份市中華路330號"}, {"no": 124, "station_id": "(GAS-0285)", "station": "台亞-後龍交流道站", "status": "", "address": "苗栗縣後龍鎮龍坑里後龍底28-11號"}, {"no": 125, "station_id": "(GAS-0295)", "station": "統一精工-和強站", "status": "", "address": "334桃園市八德區和強路308號"}, {"no": 126, "station_id": "(GAS-0299)", "station": "鼎宏-大佳站", "status": "", "address": "宜蘭縣蘇澳鎮海山西路300號 站長 03 990-7399"}, {"no": 127, "station_id": "(GAS-0301)", "station": "三大一加油站", "status": "", "address": "新竹縣湖口鄉光華路86號 03 598-0111  站長"}, {"no": 128, "station_id": "(GAS-0314)", "station": "小人國站/和泰", "status": "", "address": "桃園市龍潭區中原路二段660號 站長 03 471-7023"}, {"no": 129, "station_id": "(GAS-0318)", "station": "龍壽街加油站", "status": "", "address": "桃園市桃園區龍壽街215之10號 站長 0970-568-718"}, {"no": 130, "station_id": "(GAS-0320)", "station": "泰山加油站", "status": "", "address": "苗栗縣後龍鎮灣寶里百三151號之8 站長 037 430-355"}, {"no": 131, "station_id": "(GAS-0321)", "station": "林建勝-久井濱海東站", "status": "", "address": "新北市貢寮區福連街36號 站長 02 2499-2111"}, {"no": 132, "station_id": "(GAS-0323)", "station": "大埔加油站", "status": "", "address": "苗栗縣竹南鎮公義路498號 站長 03 758 1762"}, {"no": 133, "station_id": "(GAS-0324)", "station": "來來加油站", "status": "", "address": "苗栗縣竹南鎮公館里6鄰公館仔65號 站長03 762 5688"}, {"no": 134, "station_id": "(GAS-0325)", "station": "林建勝-竹安府城站", "status": "", "address": "宜蘭縣宜蘭市中山路一段145號 站長 03 925 -1779"}, {"no": 135, "station_id": "(GAS-0326)", "station": "良奇加油站", "status": "", "address": "新竹縣竹東鎮中興路一段109號 站長 03 594-2727"}, {"no": 136, "station_id": "(GAS-0327)", "station": "石牌愛心站/晶叡", "status": "", "address": "台北市北投區承德路七段139號 站長 02 2820-6995"}, {"no": 137, "station_id": "(GAS-0328)", "station": "五分埔加油站", "status": "", "address": "新竹縣新埔鎮新關路五埔段938號 站長 03 588-5089"}, {"no": 138, "station_id": "(GAS-0329)", "station": "台亞-城林橋站", "status": "", "address": "新北市土城區亞洲路9號  站長 02 2267-8668"}, {"no": 139, "station_id": "(GAS-0330)", "station": "明湖加油站", "status": "", "address": "新竹市明湖里明湖路1036號 站長 03 520-0235"}, {"no": 140, "station_id": "(GAS-0335)", "station": "樺勛加油/銢慶", "status": "", "address": "桃園市中壢區榮民南路500號 站長 03 466-7048"}, {"no": 141, "station_id": "(GAS-0340)", "station": "華通石油/全鋒中悅站", "status": "", "address": "桃園市龜山區南祥路86號 站長 03 212 9746"}, {"no": 142, "station_id": "(GAS-0343)", "station": "保璋加油站", "status": "", "address": "桃園市觀音區保障里草漯路79號 站長 03 483-0983"}, {"no": 143, "station_id": "(GAS-0344)", "station": "大嘉好加油站", "status": "", "address": "新北市三芝區錫板里海尾14之32號"}, {"no": 144, "station_id": "(GAS-0349)", "station": "新關加油站", "status": "", "address": "305新竹縣新埔鎮文山路亞東段871號  03 589-2885"}, {"no": 145, "station_id": "(GAS-0351)", "station": "員山加油站", "status": "", "address": "310新竹縣竹東鎮員山路428號 03-582-7583"}, {"no": 146, "station_id": "(GAS-0353)", "station": "竹林加油站", "status": "", "address": "307新竹縣芎林鄉富林路二段738號 站長03 592-5448"}, {"no": 147, "station_id": "(GAS-0354)", "station": "台亞-冬山站", "status": "", "address": "269宜蘭縣冬山鄉冬山路一段1071號 站長03-9590559"}, {"no": 148, "station_id": "(GAS-0356)", "station": "十興加油站", "status": "", "address": "新竹縣竹北市東興路一段290號 站長 03-5502600"}, {"no": 149, "station_id": "(GAS-0360)", "station": "台亞-延平站", "status": "", "address": "桃園市平鎮區延平路三段266號 站長03-4016033"}, {"no": 150, "station_id": "(GAS-0366)", "station": "奕榮苗栗站", "status": "", "address": "360苗栗縣苗栗市恭敬里12鄰華岡80號 站長 037352288"}, {"no": 151, "station_id": "(GAS-0371)", "station": "台糖-平和站", "status": "", "address": "花蓮縣壽豐鄉中華路二段172號 游金安站長038-663315"}, {"no": 152, "station_id": "(GAS-0372)", "station": "台糖-大進站", "status": "", "address": "花蓮縣光復鄉中山路一段232號 邱聰文站長038-703800"}, {"no": 153, "station_id": "(GAS-0373)", "station": "台糖-萬里站", "status": "", "address": "花蓮縣鳳林鎮長橋路118號 溫信忠站長038-752888"}, {"no": 154, "station_id": "(GAS-0375)", "station": "嘉油-宜梧南庄北站", "status": "", "address": "苗栗縣三灣鄉北埔村小北埔99號"}, {"no": 155, "station_id": "(GAS-0383)", "station": "林建勝-良晨東澳站", "status": "", "address": "宜蘭縣蘇澳鎮東澳里蘇花路3段210號  站長03 998-6309"}, {"no": 156, "station_id": "(GAS-0384)", "station": "順興/煒杰站", "status": "", "address": "新竹縣湖口鄉八德路一段396號 站長03 569-0606"}, {"no": 157, "station_id": "(GAS-0387)", "station": "中正東路站", "status": "", "address": "桃園市大園區中正東路311號  站長 03-3851892"}, {"no": 158, "station_id": "(GAS-0389)", "station": "統一精工-中壢三站", "status": "", "address": "桃園市中壢區新中北路二段5號  站長 03-4558599"}, {"no": 159, "station_id": "(GAS-0400)", "station": "林建勝-宜聯鋼鐵八仙站", "status": "", "address": "宜蘭縣冬山鄉冬山路３段379號  陳宜玫 03-9907888"}, {"no": 160, "station_id": "(GAS-0404)", "station": "成泰加油站", "status": "", "address": "新北市五股區成泰路一段170號 站長02 2291-8800"}, {"no": 161, "station_id": "(GAS-0407)", "station": "福懋-南崁站", "status": "", "address": "桃園市蘆竹區錦中村3鄰南崁路一段265號 站長03-3521485"}, {"no": 162, "station_id": "(GAS-0408)", "station": "奕榮造橋站", "status": "", "address": "苗栗縣造橋鄉造橋村17鄰西坑6-1號  站長03 756 1111"}, {"no": 163, "station_id": "(GAS-0413)", "station": "台糖-中興二站", "status": "", "address": "台東市臨海路三段431號  方文龍089-358360"}, {"no": 164, "station_id": "(GAS-0414)", "station": "台糖-中興站", "status": "", "address": "台東市中興路二段717號  陳亭容 089-233735"}, {"no": 165, "station_id": "(GAS-0417)", "station": "一德站/維泰", "status": "", "address": "桃園市大溪區康莊路473號_x000D_\n03-3873018"}, {"no": 166, "station_id": "(GAS-0432)", "station": "統一精工-樹林站", "status": "", "address": "新北市樹林區中華路190號_x000D_\n蔡幗玉0939-195095 / 02-66370080"}, {"no": 167, "station_id": "(GAS-0433)", "station": "統一精工-文中站", "status": "", "address": "桃園市桃園區文中路390號 莊依萍 0956-017963"}];
+const SEED_INSTALLS = [{"站點編號": "(GAS-0600)", "客戶編號": "C1000285", "站點名稱": "榮光加油站", "設備類型": "直立式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-01-07", "地址": "南投縣埔里鎮榮光路1-11號", "區域": "尚恩", "電話": "站長 04-92996678", "備註": "", "照片": "https://drive.google.com/drive/folders/1rdyWGjksFldh9LUTerAsQRV24pCLc94w?usp=drive_link"}, {"站點編號": "(GAS-0601)", "客戶編號": "C2012105", "站點名稱": "坤業蘆竹站", "設備類型": "直立式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-01-13", "地址": "桃園市蘆竹區南崁路二段577號", "區域": "諾瓦", "電話": "站長  03-3220998", "備註": "", "照片": "https://drive.google.com/drive/folders/1aKhNyAMUVR51Xngw8w7JCflizOIaMgBG?usp=drive_link"}, {"站點編號": "(GAS-0602)", "客戶編號": "C2000486", "站點名稱": "山隆竹山站", "設備類型": "直立式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-02-09", "地址": "南投縣竹山鎮山崇里集山路二段419號", "區域": "尚恩", "電話": "0916-703-367黃漢哲", "備註": "2026山隆買下 序號由(GAS-0013)變更(GAS-0602)", "照片": "https://drive.google.com/drive/folders/1eCyObNp7nDKjSt0kqssHoU9FdVPvHREo?usp=drive_link"}, {"站點編號": "(GAS-0603)", "客戶編號": "C2014100", "站點名稱": "苗栗汶水站", "設備類型": "掛式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-02-05", "地址": "苗栗縣大湖鄉富興村1鄰水尾41號", "區域": "諾瓦", "電話": "謝順利 037-990511", "備註": "", "照片": "https://drive.google.com/drive/folders/1jCB8ZIdyb4VrsXoq0CYfi7X41tpuITTw?usp=drive_link"}, {"站點編號": "(TPE-017)", "客戶編號": "C3001718", "站點名稱": "台北客運瑞芳站", "設備類型": "掛式i-Depot", "桶槽形式": "IBC", "裝機日期": "2026-02-10", "地址": "新北市瑞芳區中山路302號", "區域": "諾瓦", "電話": "站長 (02)2406-1356", "備註": "", "照片": "https://drive.google.com/drive/folders/1qXB0hucpGs8Oj-cVSTMsEWkQpwLB_FIZ?usp=drive_link"}, {"站點編號": "(GAS-0604)", "客戶編號": "C2004003", "站點名稱": "經國能源\n 平鎮新站1", "設備類型": "直立式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-03-11", "地址": "324桃園市平鎮區中興路平鎮段112號", "區域": "諾瓦", "電話": "0982007633 林站長", "備註": "", "照片": "https://drive.google.com/drive/folders/1VP8tEfR43heTGadBqtjnf44b-P5vHjFp?usp=drive_link"}, {"站點編號": "(GAS-0605)", "客戶編號": "C2004004", "站點名稱": "經國能源\n 平鎮新站2", "設備類型": "直立式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-03-11", "地址": "324桃園市平鎮區中興路平鎮段113號", "區域": "諾瓦", "電話": "0982007634 林站長", "備註": "", "照片": "https://drive.google.com/drive/folders/1VP8tEfR43heTGadBqtjnf44b-P5vHjFp?usp=drive_link"}, {"站點編號": "(GAS-0606)", "客戶編號": "C2014200", "站點名稱": "(關西)中油新昀站", "設備類型": "掛式i-Depot", "桶槽形式": "3T桶槽", "裝機日期": "2026-03-18", "地址": "", "區域": "", "電話": "", "備註": "", "照片": "https://drive.google.com/drive/folders/1XbgA7V48ecNPeixeuWSOkRzqcRjy7rxD?usp=drive_link"}, {"站點編號": "(SV-0011)", "客戶編號": "C1000282", "站點名稱": "鎮南大肚加油站", "設備類型": "上身i-Depot(\n無網路單機版)", "桶槽形式": "3T桶槽", "裝機日期": "2026-03-31", "地址": "台中市大肚區沙田路三段247號", "區域": "", "電話": 980213307, "備註": "", "照片": "https://drive.google.com/drive/folders/1W7gfBQUUPuSn6OO-GBOsOrgw89pWzqfk?usp=drive_link"}, {"站點編號": "", "客戶編號": "C1000450", "站點名稱": "雲林西螺順歷站", "設備類型": "直立式i-Depot \n無網路單機版)", "桶槽形式": "3T桶槽", "裝機日期": "2026-04-08", "地址": "雲林縣西螺鎮福來路147號", "區域": "", "電話": "05-5867438", "備註": "", "照片": "https://drive.google.com/drive/folders/1d1D9a1YuCulOt4Br8aRdyMga8DsIBnOp?usp=drive_link"}, {"站點編號": "(GAS-0608)", "客戶編號": "C1000286", "站點名稱": "台中豐原合作加油站", "設備類型": "直立式i-Depot", "桶槽形式": "2T桶槽", "裝機日期": "2026-04-14", "地址": "臺中市豐原區三村里西勢路495號", "區域": "", "電話": "04-25354667", "備註": "", "照片": "https://drive.google.com/drive/folders/1QzkSqSHJJrxQ5LwVlGOO3vky8cvEqBak?usp=drive_link"}, {"站點編號": "(GAS-0609)", "客戶編號": "C10002286", "站點名稱": "(台南) 巽景站", "設備類型": "直立式i-Depot,3T桶槽,馬達架高", "桶槽形式": "3T桶槽", "裝機日期": "2026-04-16", "地址": "臺南市關廟區關廟里中山路二段234號", "區域": "", "電話": "楊宏明988007506", "備註": "", "照片": "https://drive.google.com/drive/folders/1rKXWNA2Dp9iQaJ9VulMQTTA8iBxpulBY?usp=drive_link"}, {"站點編號": "(GAS-0610)", "客戶編號": "C2003751", "站點名稱": "統一精工嘉太站", "設備類型": "直立式i-Depot,3T桶槽,高空車,吊車,需要場塂,馬達架高  本站為獨立站島，無維修通道與樓梯，請將馬達與濾心等設備安裝於站亭上，以利未來檢修。", "桶槽形式": "3T桶槽", "裝機日期": "2026-04-20", "地址": "嘉義縣太保市北港路二段701號", "區域": "", "電話": "林奕銓\n0987331211", "備註": "本站為獨立站島，無維修通道與樓梯，請將馬達與濾心等設備安裝於站亭上，以利未來檢修\n直立式i-Depot,3T桶槽,高空車,吊車,需要場塂,馬達架高", "照片": "https://drive.google.com/drive/folders/1sw-HV8hZuXXdKQpMU8-0XIQHvJCc9YTm?usp=sharing"}, {"站點編號": "(GAS-0611)", "客戶編號": "C3002203", "站點名稱": "山隆加油站 嘉泰站\n\n\t掛式i-Depot,3T桶槽,高空車,吊車,需要場塂\n\n\t掛式i-Depot，電源另尋，無須POS線", "設備類型": "掛式i-Depot,3T桶槽,高空車,吊車,需要場塂\n\n掛式i-Depot，電源另尋，無須POS線", "桶槽形式": "3T桶槽", "裝機日期": "2026-04-22", "地址": "嘉義縣太保市北港路二段508號", "區域": "", "電話": 52381791, "備註": "", "照片": "https://drive.google.com/drive/folders/1nBi6nsPWN_xvCVzhY9T8RsUqr3dA54i4?usp=sharing"}, {"站點編號": "(CHP-0001)", "客戶編號": "C5108500", "站點名稱": "中華郵政股份有限公司臺北郵件處理中心", "設備類型": "直立式i-Depot,3T桶槽,需要場塂,馬達架高", "桶槽形式": "3T桶槽", "裝機日期": "2026-04-27", "地址": "桃園市龜山區文信路286號", "區域": "", "電話": "劉先生0982111981", "備註": "", "照片": "https://drive.google.com/drive/folders/1lby0h2DruvTIzCpOTvh1HZstL7o0G_LI?usp=sharing"}, {"站點編號": "(GAS-0607)", "客戶編號": "C2014300", "站點名稱": "(苗栗)裕源站", "設備類型": "掛式i-Depot,3T桶槽,高空車,吊車,需要場塂", "桶槽形式": "3T桶槽", "裝機日期": "2026-05-08", "地址": "苗栗縣三義鄉西湖村16鄰伯公坑151號", "區域": "", "電話": "037-874996", "備註": "", "照片": "https://drive.google.com/drive/folders/1L3_c2hFpWgmnDH6W_CazQmB_oc4GPb1I?usp=drive_link"}, {"站點編號": "(GAS-0612)", "客戶編號": "C1000290", "站點名稱": "(南投)中油博愛站", "設備類型": "直立式i-Depot,3T桶槽,", "桶槽形式": "3T桶槽", "裝機日期": "", "地址": "南投縣草屯鎮敦和里博愛路999號", "區域": "", "電話": "0492336084 洪S", "備註": "", "照片": "https://drive.google.com/drive/folders/1uDqt0PjLHAfqhFBU5Vxx-SIhFpmH3pbR?usp=drive_link"}, {"站點編號": "(GAS-0613)", "客戶編號": "C1000289", "站點名稱": "(南投)中油楠埔站", "設備類型": "直立式i-Depot,3T桶槽,高空車", "桶槽形式": "3T桶槽", "裝機日期": "2026-06-09", "地址": "南投縣草屯鎮南埔里中正路233之89號", "區域": "", "電話": "0492552846", "備註": "", "照片": "https://drive.google.com/drive/folders/1YQ6q0wnomBBtMKY7D1H842OCT_qd7gR2?usp=drive_link"}, {"站點編號": "(GAS-0614)", "客戶編號": "C2004377", "站點名稱": "(彰化)福懋溪湖站", "設備類型": "直立式i-Depot,3T桶槽", "桶槽形式": "3T桶槽", "裝機日期": "2026-05-19", "地址": "彰化縣溪湖鎮番婆里彰水路二段216號", "區域": "", "電話": 48859995, "備註": "", "照片": "https://drive.google.com/drive/folders/1p1g_m_gcgUVZiLYFOt-kWq1YLX72pVFw?usp=drive_link"}, {"站點編號": "(GAS-0615)", "客戶編號": "C1000288", "站點名稱": "(南投)中油社口站", "設備類型": "直立式i-Depot,3T桶槽,高空車", "桶槽形式": "3T桶槽", "裝機日期": "2026-06-28", "地址": "彰化縣芬園鄉社口村復興路58號", "區域": "", "電話": 492522699, "備註": "", "照片": "https://drive.google.com/drive/folders/1exQisU041tjgURi_jXLi0Zp2OXqd4Soh?usp=drive_link"}, {"站點編號": "(GAS-0616)", "客戶編號": "C1000287", "站點名稱": "(台中金東大站", "設備類型": "掛式i-Depot,3T桶槽,高空車,吊車,馬達架高", "桶槽形式": "3T桶槽", "裝機日期": "2026-05-21", "地址": "臺中市南屯區春社里永春路42之37號", "區域": "", "電話": "0423801597", "備註": "", "照片": "https://drive.google.com/drive/folders/1DtuCCqCTkJeMBVBjUCWf4MDe6KkyHqj8?usp=drive_link"}, {"站點編號": "(GAS-0617)", "客戶編號": "C2014400", "站點名稱": "(後龍)中油龍昌站", "設備類型": "掛式i-Depot,3T桶槽,高空車,吊車,", "桶槽形式": "", "裝機日期": "2026-06-11", "地址": "苗栗縣後龍鎮龍坑里169號之2", "區域": "", "電話": "037 722 575", "備註": "", "照片": "https://drive.google.com/drive/folders/1M4RaCrXgPgIEsO3KrbLaP7wuHxt_fqDQ?usp=drive_link"}, {"站點編號": "(FLEET-)", "客戶編號": "C3003503", "站點名稱": "(新竹)永協", "設備類型": "直立式i-Depot,需要場塂", "桶槽形式": "", "裝機日期": "2026-06-22", "地址": "新竹縣湖口鄉信義村7鄰成功路910號", "區域": "", "電話": "0955-755-118曾增全主任", "備註": "永協廠內標準加注設備升級，沿用原桶槽，惟管線部份協助巡檢並更新舊化部分。", "照片": "https://drive.google.com/drive/folders/1VU2TNIlk9zkSYNpirhHewrl4MEQaNOTv?usp=sharing"}, {"站點編號": "(GAS-0618)", "客戶編號": "C2004378", "站點名稱": "福懋竹崎站", "設備類型": "直立式i-Depot,3T桶槽,切地,吊車,馬達架高", "桶槽形式": "", "裝機日期": "2026-07-07", "地址": "嘉義縣竹崎鄉和平村中山路161號", "區域": "", "電話": 52616090, "備註": "", "照片": "https://drive.google.com/drive/folders/1AOkunaV3XAj7qgvdndInUAbJ3GhZLBkH?usp=drive_link"}, {"站點編號": "(GAS-0619)", "客戶編號": "C2004361", "站點名稱": "福懋古坑站", "設備類型": "直立式i-Depot,3T桶槽,切地,馬達架高", "桶槽形式": "", "裝機日期": "2026-07-09", "地址": "雲林縣古坑鄉朝陽村中山路278號", "區域": "", "電話": "055820282", "備註": "", "照片": "https://drive.google.com/drive/folders/1It3uhMtc7IKDIPHGWjtlaStjWpEaIKrh?usp=drive_link"}, {"站點編號": "(GAS-0620)", "客戶編號": "", "站點名稱": "(雲林)車城加油站", "設備類型": "直立式i-Depot,3T桶槽/吊車/高空車/洗洞", "桶槽形式": "", "裝機日期": "", "地址": "雲林縣西螺鎮振興路52-2號", "區域": "", "電話": "05 587 3838 站長", "備註": "", "照片": "https://drive.google.com/drive/folders/14joP2gPzw-QpZxKi9cX_fnB9njp_XZpz?usp=sharing"}, {"站點編號": "(GAS-0622)", "客戶編號": "", "站點名稱": "", "設備類型": "", "桶槽形式": "", "裝機日期": "", "地址": "", "區域": "", "電話": "", "備註": "", "照片": ""}, {"站點編號": "(GAS-0623)", "客戶編號": "", "站點名稱": "", "設備類型": "", "桶槽形式": "", "裝機日期": "", "地址": "", "區域": "", "電話": "", "備註": "", "照片": ""}, {"站點編號": "(GAS-0624)", "客戶編號": "", "站點名稱": "", "設備類型": "", "桶槽形式": "", "裝機日期": "", "地址": "", "區域": "", "電話": "", "備註": "", "照片": ""}];
+const SEED_TRUCKS = [];
+const SEED_ENGINEERS = ['阿振','阿國','文海','賽門'];
+const SEED_VEHICLES = ['BXG-0680','AYD-5975'];
+const SEED_REPAIR_STATUSES = ['待修','維修中','已完修','轉尚恩','轉嘉油'];
+
+/* ============ Storage helpers (shared across team) ============ */
+const STORAGE_KEYS = { repairs:'repairs', tanks:'tanks', installs:'installs', trucks:'trucks', engineers:'engineers', vehicles:'vehicles', repairStatuses:'repairStatuses', repairItemCatalog:'repairItemCatalog' };
+
+function setSyncing(on){
+  const dot = document.getElementById('syncDot');
+  const txt = document.getElementById('syncText');
+  if(!dot) return;
+  if(on){ dot.classList.add('busy'); txt.textContent='儲存中…'; }
+  else { dot.classList.remove('busy'); txt.textContent='資料已同步（團隊共用）'; }
+}
+
+/* ============ Firebase 設定 ============
+   請到 https://console.firebase.google.com 建立專案後，
+   把「專案設定」裡的 firebaseConfig 貼到下面取代預設值。 */
+const firebaseConfig = {
+  apiKey: "AIzaSyD8C_RUFChOlnF6gqYYSsyxvirk0g9AhWM",
+  authDomain: "novax-x-busan.firebaseapp.com",
+  projectId: "novax-x-busan",
+  storageBucket: "novax-x-busan.firebasestorage.app",
+  messagingSenderId: "956758206522",
+  appId: "1:956758206522:web:991c97f0bce7b9dc83ed03"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const FS_COLLECTION = 'novax_data'; // Firestore 集合名稱，可自行更改
+
+async function storeGet(key){
+  try{
+    const snap = await db.collection(FS_COLLECTION).doc(key).get();
+    if(!snap.exists) return null;
+    const data = snap.data();
+    return (data && typeof data.value === 'string') ? JSON.parse(data.value) : null;
+  }catch(e){ console.error('storage get failed', e); return null; }
+}
+async function storeSet(key, val){
+  setSyncing(true);
+  try{
+    await db.collection(FS_COLLECTION).doc(key).set({
+      value: JSON.stringify(val),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(e){ console.error('storage set failed', e); showToast('儲存失敗，請重試','err'); }
+  finally{ setSyncing(false); }
+}
+
+let nextId = 1;
+function genId(){ return 'r' + (Date.now().toString(36)) + (nextId++).toString(36); }
+
+/* ============ App state ============ */
+const state = {
+  activeTab: 'overview',
+  repairs: [],
+  tanks: [],
+  installs: [],
+  trucks: [],
+  engineers: [],
+  vehicles: [],
+  repairStatuses: [],
+  repairItemCatalog: [],
+  search: { repairs:'', tanks:'', installs:'', trucks:'' },
+  filter: { repairs:'', tanks:'' },
+  repairsView: 'list',
+  repairsStatsRange: { from:'', to:'' },
+  repairsListRange: { from:'', to:'' }
+};
+
+async function loadAll(){
+  const [repairs, tanks, installs, trucks, engineers, vehicles, repairStatuses, repairItemCatalog] = await Promise.all([
+    storeGet(STORAGE_KEYS.repairs),
+    storeGet(STORAGE_KEYS.tanks),
+    storeGet(STORAGE_KEYS.installs),
+    storeGet(STORAGE_KEYS.trucks),
+    storeGet(STORAGE_KEYS.engineers),
+    storeGet(STORAGE_KEYS.vehicles),
+    storeGet(STORAGE_KEYS.repairStatuses),
+    storeGet(STORAGE_KEYS.repairItemCatalog),
+  ]);
+  let needsSeed = false;
+  state.repairs = repairs || (needsSeed=true, SEED_REPAIRS.map(withId));
+  state.tanks = tanks || (needsSeed=true, SEED_TANKS.map(withId));
+  state.installs = installs || (needsSeed=true, SEED_INSTALLS.map(withId));
+  state.trucks = trucks || SEED_TRUCKS.map(withId);
+  state.engineers = engineers || (needsSeed=true, SEED_ENGINEERS.slice());
+  state.vehicles = vehicles || (needsSeed=true, SEED_VEHICLES.slice());
+  state.repairStatuses = repairStatuses || (needsSeed=true, SEED_REPAIR_STATUSES.slice());
+  state.repairItemCatalog = repairItemCatalog || (needsSeed=true, DEFAULT_REPAIR_ITEM_CATALOG.map(it=>({...it})));
+  if(needsSeed){
+    await Promise.all([
+      storeSet(STORAGE_KEYS.repairs, state.repairs),
+      storeSet(STORAGE_KEYS.tanks, state.tanks),
+      storeSet(STORAGE_KEYS.installs, state.installs),
+      storeSet(STORAGE_KEYS.trucks, state.trucks),
+      storeSet(STORAGE_KEYS.engineers, state.engineers),
+      storeSet(STORAGE_KEYS.vehicles, state.vehicles),
+      storeSet(STORAGE_KEYS.repairStatuses, state.repairStatuses),
+      storeSet(STORAGE_KEYS.repairItemCatalog, state.repairItemCatalog),
+    ]);
+  }
+}
+
+function withId(obj){ if(!obj.id) obj.id = genId(); return obj; }
+
+async function persist(moduleKey){
+  await storeSet(STORAGE_KEYS[moduleKey], state[moduleKey]);
+}
+/* ============ Utilities ============ */
+function esc(v){
+  if(v===null||v===undefined) return '';
+  return String(v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function truncate(s, n){ s = String(s||''); return s.length>n ? s.slice(0,n)+'…' : s; }
+
+/* station-id fields always display wrapped in parentheses, e.g. (GAS-0602) */
+const STATION_ID_FIELDS = ['貨品序號','station_id','站點編號'];
+function fmtStationId(v){
+  const s = String(v==null?'':v).trim();
+  if(!s) return '';
+  return (s.startsWith('(') && s.endsWith(')')) ? s : `(${s})`;
+}
+
+function statusTone(status){
+  const s = (status||'').trim();
+  if(!s) return 'grey';
+  if(s.startsWith('轉')) return 'purple';
+  if(['待修','未清洗','未處理','借出中','逾期未還'].includes(s)) return 'red';
+  if(['維修中','已出單','清洗中'].includes(s)) return 'amber';
+  if(['已完修','已清洗','已歸還'].includes(s)) return 'green';
+  return 'grey';
+}
+function badge(status, fallbackLabel){
+  const label = status && String(status).trim() ? status : (fallbackLabel || '未設定');
+  const tone = statusTone(status);
+  return `<span class="badge badge-${tone}">${esc(label)}</span>`;
+}
+
+/* inline, in-table status dropdown — lets the user change status without opening the row */
+function renderStatusSelect(moduleKey, id, current, options){
+  const opts = options || [];
+  const tone = statusTone(current);
+  const cur = current || '';
+  const extraOpt = (cur && !opts.includes(cur)) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : '';
+  return `<select class="status-select status-select-${tone}" onclick="event.stopPropagation()"
+    onchange="event.stopPropagation();app.quickSetStatus('${moduleKey}','${id}', this.value)">
+    <option value="" ${!cur?'selected':''}>未設定</option>
+    ${opts.map(o=>`<option value="${esc(o)}" ${cur===o?'selected':''}>${esc(o)}</option>`).join('')}
+    ${extraOpt}
+  </select>`;
+}
+
+async function quickSetStatus(moduleKey, id, value){
+  const cfg = MODULES[moduleKey];
+  const field = cfg.statusField;
+  if(!field) return;
+  const idx = state[moduleKey].findIndex(r=>r.id===id);
+  if(idx<0) return;
+  state[moduleKey][idx][field] = value;
+  renderContent();
+  await persist(moduleKey);
+  showToast('已更新狀態');
+}
+
+function showToast(msg, kind){
+  const root = document.getElementById('toast');
+  const el = document.createElement('div');
+  el.className = 'toast-item' + (kind==='err' ? ' err' : '');
+  el.textContent = msg;
+  root.appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .25s'; setTimeout(()=>el.remove(),250); }, 2200);
+}
+
+function fmtDate(d){
+  if(!d) return '';
+  return String(d).slice(0,10);
+}
+function todayISO(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+
+/* generic search across an object's string values */
+function matchesSearch(obj, q){
+  if(!q) return true;
+  const needle = q.trim().toLowerCase();
+  if(!needle) return true;
+  return Object.values(obj).some(v => v!==null && v!==undefined && String(v).toLowerCase().includes(needle));
+}
+
+function closeModal(){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = '';
+}
+function openModalHTML(html){
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `<div class="modal-backdrop" id="modalBackdrop"><div class="modal">${html}</div></div>`;
+  document.getElementById('modalBackdrop').addEventListener('mousedown', (e)=>{
+    if(e.target.id==='modalBackdrop') closeModal();
+  });
+}
+/* ============ Repair item price catalog (for 維修工單 item checklist) ============ */
+/* This is only the seed/default list — the live, editable list lives in state.repairItemCatalog */
+const DEFAULT_REPAIR_ITEM_CATALOG = [
+  {name:'透明包紗管', unit:'米', price:50},
+  {name:'黑色高壓管', unit:'米', price:190},
+  {name:'桶槽清潔（含濾心更換）', unit:null, price:3000},
+  {name:'流量計（iDepot）', unit:null, price:6600},
+  {name:'流量計(K24)', unit:null, price:3800},
+  {name:'加注槍', unit:null, price:3800},
+  {name:'加壓馬達', unit:null, price:4300},
+  {name:'COMBO馬達', unit:null, price:3800},
+  {name:'i-Depot電磁閥', unit:null, price:1200},
+  {name:'ㄇ型管組件', unit:null, price:6900},
+  {name:'液位計', unit:null, price:7300},
+  {name:'IDEPOT 主機-螢幕（毀損）', unit:null, price:7000},
+  {name:'IDEPOT 主機-網卡', unit:null, price:4000},
+  {name:'IDEPOT 主機', unit:null, price:700},
+  {name:'IDEPOT主機塑膠外殼更換', unit:null, price:3900},
+  {name:'更換管束', unit:null, price:100},
+  {name:'濾心', unit:null, price:40},
+  {name:'漏電斷路器', unit:null, price:800},
+  {name:'更換槍頭感應器', unit:null, price:800},
+  {name:'加注機不鏽鋼上座', unit:null, price:6000},
+  {name:'加注機不鏽鋼底座', unit:null, price:9000},
+];
+
+/* ============ Module configuration ============ */
+/* Each module: fields (for add/edit form) + columns (for table) */
+
+const MODULES = {
+  repairs: {
+    title: '維修工單',
+    icon: '🔧',
+    emptyMsg: '目前沒有維修工單，點右上角「新增工單」開始記錄。',
+    searchPlaceholder: '搜尋客戶、地址、狀況描述、報修單號…',
+    statusField: '維修狀況',
+    dynamicStatusSource: 'repairStatuses',
+    fields: [
+      {key:'維修狀況', label:'維修狀況', type:'select', dynamicSource:'repairStatuses', col:1},
+      {key:'使用類別', label:'保固類別', type:'select', options:['保固內','保固外'], col:1},
+      {key:'客戶名稱', label:'客戶名稱', type:'text', required:true, col:1},
+      {key:'客戶編號', label:'客戶編號', type:'text', col:1},
+      {key:'貨品名稱', label:'設備品項', type:'text', col:1},
+      {key:'貨品序號', label:'站點序號', type:'text', col:1},
+      {key:'地址', label:'地址／聯絡方式', type:'textarea', full:true},
+      {key:'狀況描述', label:'客訴狀況描述', type:'textarea', full:true},
+      {key:'維修描述', label:'維修處理說明', type:'textarea', full:true},
+      {key:'報修日期', label:'報修日期', type:'date', col:1},
+      {key:'報修單號', label:'報修單號', type:'text', col:1},
+      {key:'維修人員1名稱', label:'維修人員', type:'text', col:1},
+      {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
+      {key:'出庫保固', label:'保固到期日', type:'date', col:1},
+      {key:'出庫日期', label:'出庫日期', type:'date', col:1},
+      {key:'結案日期', label:'結案日期', type:'date', col:1},
+      {key:'發票號碼', label:'發票號碼', type:'text', col:1},
+      {key:'製單人員名稱', label:'製單人員', type:'text', col:1},
+      {key:'備註', label:'備註', type:'textarea', full:true},
+    ],
+    columns: [
+      {key:'維修狀況', label:'狀況', render:r=>renderStatusSelect('repairs', r.id, r['維修狀況'], state.repairStatuses||[])},
+      {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
+      {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
+      {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
+      {key:'維修人員1名稱', label:'維修人員', render:r=>esc(r['維修人員1名稱']||'—')},
+      {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
+    ]
+  },
+
+  tanks: {
+    title: '桶槽清洗進度',
+    icon: '🛢️',
+    emptyMsg: '尚無站點資料，點右上角「新增站點」開始追蹤。',
+    searchPlaceholder: '搜尋站點名稱、序號、地址…',
+    statusField: 'status',
+    statusOptions: ['未處理','已出單','已清洗'],
+    fields: [
+      {key:'station_id', label:'站點序號', type:'text', required:true, col:1},
+      {key:'station', label:'站點名稱', type:'text', required:true, col:1},
+      {key:'status', label:'清洗狀態', type:'select', options:['未處理','已出單','已清洗'], col:1},
+      {key:'address', label:'地址與聯絡資訊', type:'textarea', full:true},
+    ],
+    columns:[
+      {key:'station_id', label:'站點序號', render:r=>`<span class="cell-mono cell-main">${esc(fmtStationId(r.station_id)||'—')}</span>`},
+      {key:'station', label:'站點名稱', render:r=>`<div class="cell-main">${esc(r.station||'—')}</div>`},
+      {key:'status', label:'清洗狀態', render:r=>renderStatusSelect('tanks', r.id, r.status, MODULES.tanks.statusOptions||[])},
+      {key:'address', label:'地址與聯絡', render:r=>`<span class="cell-plain">${esc(truncate(r.address||'',44))}</span>`},
+    ]
+  },
+
+  installs: {
+    title: '裝機管理',
+    icon: '🏗️',
+    emptyMsg: '尚無裝機紀錄，點右上角「新增裝機」開始記錄。',
+    searchPlaceholder: '搜尋站點、客戶、區域、電話…',
+    statusField: null,
+    rowClick: true,
+    titleField: '站點名稱',
+    fields: [
+      {key:'站點編號', label:'站點編號', type:'text', col:1},
+      {key:'客戶編號', label:'客戶編號', type:'text', col:1},
+      {key:'站點名稱', label:'站點名稱', type:'text', required:true, col:1},
+      {key:'區域', label:'負責區域／工程人員', type:'text', col:1},
+      {key:'設備類型', label:'設備類型', type:'textarea', full:true},
+      {key:'桶槽形式', label:'桶槽形式', type:'text', col:1},
+      {key:'裝機日期', label:'裝機日期', type:'date', col:1},
+      {key:'電話', label:'聯絡電話／窗口', type:'text', col:1},
+      {key:'地址', label:'地址', type:'textarea', full:true},
+      {key:'備註', label:'備註', type:'textarea', full:true},
+      {key:'照片', label:'照片連結 (Google Drive)', type:'text', full:true},
+    ],
+    columns:[
+      {key:'站點編號', label:'站點編號', render:r=>`<span class="cell-mono cell-main">${esc(fmtStationId(r['站點編號'])||'—')}</span>`},
+      {key:'站點名稱', label:'站點名稱', render:r=>`<div class="cell-main">${esc(r['站點名稱']||'—')}</div>`},
+      {key:'裝機日期', label:'裝機日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['裝機日期'])||'—')}</span>`},
+      {key:'照片', label:'站點圖片', render:r=> r['照片']
+        ? `<a class="btn btn-ghost btn-sm" href="${esc(r['照片'])}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📷 站點圖片</a>`
+        : `<span class="cell-sub">尚未設定</span>` },
+    ]
+  },
+
+  trucks: {
+    title: '貨車領用登記',
+    icon: '🚚',
+    emptyMsg: '目前沒有借用紀錄，點右上角「新增領用紀錄」登記借車。',
+    searchPlaceholder: '搜尋車號、用途、領用人…',
+    statusField: null,
+    fields: [
+      {key:'車號', label:'車號', type:'select', dynamicSource:'vehicles', col:1},
+      {key:'領用日期', label:'領用日期', type:'date', col:1},
+      {key:'領用時間', label:'領用時間', type:'time', col:1},
+      {key:'歸還日期', label:'歸還日期', type:'date', col:1},
+      {key:'歸還時間', label:'歸還時間', type:'time', col:1},
+      {key:'用途', label:'用途', type:'multiselect', options:['維修','裝機','拆機','改管','洗桶','保養'], full:true},
+      {key:'領用人', label:'領用人', type:'select', dynamicSource:'engineers', col:1},
+      {key:'保管人', label:'保管人簽收', type:'text', col:1},
+      {key:'備註', label:'備註', type:'textarea', full:true},
+    ],
+    columns:[
+      {key:'車號', label:'車號', render:r=>`<span class="cell-mono cell-main">${esc(r['車號']||'—')}</span>`},
+      {key:'用途', label:'用途', render:r=>esc((r['用途']||[]).join('、')||'—')},
+      {key:'領用', label:'領用', render:r=>`<span class="cell-mono">${esc(fmtDate(r['領用日期']))} ${esc(r['領用時間']||'')}</span>`},
+      {key:'歸還', label:'歸還／狀態', render:r=> r['歸還日期'] ? `<span class="cell-mono">${esc(fmtDate(r['歸還日期']))} ${esc(r['歸還時間']||'')}</span>` : badge('借出中')},
+      {key:'領用人', label:'領用人', render:r=>esc(r['領用人']||'—')},
+      {key:'保管人', label:'保管人', render:r=>esc(r['保管人']||'—')},
+    ]
+  }
+};
+/* ============ Generic list-module rendering (repairs / tanks / installs / trucks) ============ */
+
+/* normalize '2026/07/06' or '2026-07-06' etc into a comparable 'YYYY-MM-DD' string */
+function normDate(d){
+  if(!d) return '';
+  return String(d).slice(0,10).replace(/\//g,'-');
+}
+function getRepairDate(r){
+  return normDate(r['結案日期'] || r['報修日期'] || r['出庫日期'] || '');
+}
+
+function renderRepairsViewToggle(){
+  return `<div style="display:flex;gap:8px;margin:28px 0 12px;">
+    <button class="btn btn-sm ${state.repairsView!=='stats'?'btn-primary':'btn-ghost'}" onclick="app.setRepairsView('list')">📋 工單列表</button>
+    <button class="btn btn-sm ${state.repairsView==='stats'?'btn-primary':'btn-ghost'}" onclick="app.setRepairsView('stats')">📈 維修品項統計</button>
+  </div>`;
+}
+
+function setRepairsView(v){
+  state.repairsView = v;
+  renderContent();
+}
+function clearStatsRange(){
+  state.repairsStatsRange = { from:'', to:'' };
+  renderContent();
+}
+
+function computeRepairStats(){
+  const range = state.repairsStatsRange;
+  const filtered = state.repairs.filter(r=>{
+    if(!range.from && !range.to) return true;
+    const d = getRepairDate(r);
+    if(!d) return false;
+    if(range.from && d < range.from) return false;
+    if(range.to && d > range.to) return false;
+    return true;
+  });
+  const agg = {};
+  filtered.forEach(r=>{
+    (Array.isArray(r['維修項目'])?r['維修項目']:[]).forEach(it=>{
+      if(!agg[it.name]) agg[it.name] = { count:0, qtySum:0, amountSum:0, unit:it.unit };
+      agg[it.name].count += 1;
+      agg[it.name].qtySum += (it.qty||0);
+      agg[it.name].amountSum += (it.subtotal || ((it.qty||0)*(it.unitPrice||0)) || 0);
+    });
+  });
+  const rows = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count);
+  const totalAmount = rows.reduce((s,[,v])=>s+v.amountSum,0);
+  return { filtered, rows, totalAmount };
+}
+
+const PIE_COLORS = ['#1D4E5F','#E2A33D','#3F8F5F','#C1473A','#7148A6','#2E8B9A','#D98F2B','#5B6E7C','#8B9BA7','#9B5DE5','#00A896','#B7C1C8'];
+
+/* rows: sorted [name, {count,qtySum,amountSum,unit}][] entries; builds a CSS conic-gradient pie + legend, capped at top 10 + "其他"
+   使用「使用次數」計算佔比（不使用金額） */
+function renderRepairItemsPie(rows, totalCount){
+  if(!rows.length || totalCount<=0) return '';
+  const top = rows.slice(0,10);
+  const rest = rows.slice(10);
+  const restCount = rest.reduce((s,[,v])=>s+v.count,0);
+  const slices = top.map(([name,v],i)=>({name, value:v.count, color:PIE_COLORS[i%PIE_COLORS.length]}));
+  if(restCount>0) slices.push({name:'其他', value:restCount, color:'#B7C1C8'});
+
+  let acc = 0;
+  const gradientParts = slices.map(s=>{
+    const pct = totalCount ? (s.value/totalCount*100) : 0;
+    const start = acc;
+    acc += pct;
+    return `${s.color} ${start.toFixed(2)}% ${acc.toFixed(2)}%`;
+  }).join(', ');
+
+  const legendHTML = slices.map(s=>{
+    const pct = totalCount ? (s.value/totalCount*100) : 0;
+    return `<div class="pie-legend-row"><span class="pie-dot" style="background:${s.color}"></span><span class="pie-legend-name">${esc(s.name)}</span><span class="pie-legend-val">${s.value} 次（${pct.toFixed(1)}%）</span></div>`;
+  }).join('');
+
+  return `
+    <div class="pie-chart" style="background:conic-gradient(${gradientParts});"></div>
+    <div class="pie-legend">${legendHTML}</div>
+  `;
+}
+
+/* 找出指定維修品項在（目前統計區間內）分別是哪些站點維修使用的 */
+function findRepairItemStations(name){
+  const { filtered } = computeRepairStats();
+  const matches = [];
+  filtered.forEach(r=>{
+    (Array.isArray(r['維修項目'])?r['維修項目']:[]).forEach(it=>{
+      if(it.name===name){
+        matches.push({
+          id:r.id,
+          customer:r['客戶名稱'],
+          stationId:r['貨品序號'],
+          date:getRepairDate(r),
+          qty:it.qty, unit:it.unit
+        });
+      }
+    });
+  });
+  matches.sort((a,b)=> String(b.date||'').localeCompare(String(a.date||'')));
+  return matches;
+}
+
+function openRepairItemStations(name){
+  const matches = findRepairItemStations(name);
+  const rowsHTML = matches.length ? matches.map(m=>`
+    <div class="detail-row">
+      <div class="detail-label">${esc(m.customer||'—')}${m.stationId?`<div class="cell-sub">${esc(fmtStationId(m.stationId))}</div>`:''}</div>
+      <div class="detail-value">
+        <span class="cell-mono">${esc(fmtDate(m.date)||'—')}</span>　數量：${m.qty}${m.unit?esc(m.unit):''}
+        　<button type="button" class="link-btn" style="color:var(--primary);font-weight:700;" onclick="app.closeModal();app.openDetail('repairs','${m.id}')">查看工單 ↗</button>
+      </div>
+    </div>`).join('') : `<div class="empty-state"><span class="emoji">🧰</span>此區間內尚無使用此品項的維修紀錄</div>`;
+
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>🧰 ${esc(name)}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 10px;font-size:12px;color:var(--ink-faint);">共 ${matches.length} 個站點維修使用此品項</p>
+      <div class="detail-list">${rowsHTML}</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="app.closeModal()">關閉</button></div>
+  `);
+}
+
+function openRepairItemStationsByIndex(idx){
+  const { rows } = computeRepairStats();
+  const entry = rows[idx];
+  if(!entry) return;
+  openRepairItemStations(entry[0]);
+}
+
+function renderRepairStatsView(){
+  const cfg = MODULES.repairs;
+  const range = state.repairsStatsRange;
+  const { filtered, rows } = computeRepairStats();
+  const totalCount = rows.reduce((s,[,v])=>s+v.count,0);
+
+  return `
+    ${renderRepairsViewToggle()}
+    <div class="section-head">
+      <h2>${cfg.icon} 維修品項統計</h2>
+      <span class="hint">點列表中的品項可查看是哪些站點維修使用</span>
+    </div>
+    <div class="panel">
+      <div class="panel-toolbar" style="gap:14px;">
+        <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">開始日期 <input type="date" id="stats_from" value="${esc(range.from)}"></label>
+        <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">結束日期 <input type="date" id="stats_to" value="${esc(range.to)}"></label>
+        <button class="btn btn-ghost btn-sm" onclick="app.clearStatsRange()">清除區間</button>
+        <span class="hint" style="color:var(--ink-faint);font-size:12px;">${(range.from||range.to)?`區間內共 ${filtered.length} 筆工單、`:'全部工單、'}使用 ${rows.length} 種品項</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary btn-sm" onclick="app.exportStatsPPT()">📤 匯出 PPT</button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-title-row"><h3>🥧 維修品項使用佔比</h3></div>
+      <div class="pie-panel">
+        ${rows.length && totalCount>0 ? renderRepairItemsPie(rows, totalCount) : `<div class="empty-state" style="padding:12px 0;"><span class="emoji">🥧</span>此區間內尚無可繪製圖表的資料</div>`}
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>維修品項</th><th>使用次數</th><th>累計數量</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map(([name,v],i)=>`
+              <tr class="row-clickable" onclick="app.openRepairItemStationsByIndex(${i})">
+                <td class="cell-main">${esc(name)}</td>
+                <td class="cell-mono">${v.count}</td>
+                <td class="cell-mono">${v.qtySum}${v.unit?esc(v.unit):''}</td>
+              </tr>`).join('') : `<tr><td colspan="3"><div class="empty-state"><span class="emoji">📈</span>此區間內尚無維修品項紀錄，請先於工單中勾選使用項目。</div></td></tr>`}
+          </tbody>
+          ${rows.length ? `<tfoot><tr><td class="cell-main">總計</td><td class="cell-mono">${totalCount}</td><td class="cell-mono">—</td></tr></tfoot>` : ''}
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function exportStatsPPT(){
+  if(typeof PptxGenJS === 'undefined'){
+    showToast('PPT 匯出元件載入失敗，請確認網路連線後重新整理再試', 'err');
+    return;
+  }
+  const { filtered, rows } = computeRepairStats();
+  if(!rows.length){
+    showToast('此區間內沒有可匯出的維修品項資料', 'err');
+    return;
+  }
+  const totalCount = rows.reduce((s,[,v])=>s+v.count,0);
+  const range = state.repairsStatsRange;
+  const rangeLabel = (range.from||range.to) ? `統計區間：${range.from||'—'} ～ ${range.to||'—'}` : '統計區間：全部';
+
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name:'WIDE', width:13.33, height:7.5 });
+  pptx.layout = 'WIDE';
+  const slide = pptx.addSlide();
+  slide.background = { color:'FFFFFF' };
+  slide.addText('維修品項統計', { x:0.5, y:0.35, w:8, h:0.6, fontSize:26, bold:true, color:'0F323E' });
+  slide.addText(`${rangeLabel}　｜　共 ${filtered.length} 筆工單　｜　${rows.length} 種品項　｜　總使用次數 ${totalCount}`,
+    { x:0.5, y:0.95, w:12.3, h:0.4, fontSize:13, color:'5B6E7C' });
+
+  const top = rows.slice(0,10);
+  const rest = rows.slice(10);
+  const restCount = rest.reduce((s,[,v])=>s+v.count,0);
+  const chartLabels = top.map(([name])=>name).concat(restCount>0 ? ['其他'] : []);
+  const chartValues = top.map(([,v])=>v.count).concat(restCount>0 ? [restCount] : []);
+  const pieColorsHex = PIE_COLORS.map(c=>c.replace('#',''));
+
+  if(totalCount>0){
+    slide.addChart(pptx.ChartType.pie, [{ name:'使用次數佔比', labels: chartLabels, values: chartValues }], {
+      x:0.5, y:1.5, w:6.2, h:5.3,
+      showLegend:true, legendPos:'r', legendFontSize:11,
+      showValue:false, showPercent:true, dataLabelFontSize:10,
+      chartColors: pieColorsHex
+    });
+  }
+
+  const tableRows = [[
+    { text:'維修品項', options:{ bold:true, fill:{ color:'E4EAEC' } } },
+    { text:'使用次數', options:{ bold:true, fill:{ color:'E4EAEC' } } },
+    { text:'累計數量', options:{ bold:true, fill:{ color:'E4EAEC' } } }
+  ]];
+  rows.forEach(([name,v])=>{
+    tableRows.push([ name, String(v.count), `${v.qtySum}${v.unit||''}` ]);
+  });
+  tableRows.push([
+    { text:'總計', options:{ bold:true } }, String(totalCount), '—'
+  ]);
+
+  slide.addTable(tableRows, {
+    x: totalCount>0 ? 7.0 : 0.5, y:1.5, w: totalCount>0 ? 5.8 : 12.3, h:5.3,
+    fontSize:10, color:'152634', border:{ type:'solid', color:'DCE3E6', pt:0.5 },
+    autoPage:true, autoPageRepeatHeader:true
+  });
+
+  try{
+    await pptx.writeFile({ fileName:`維修品項統計_${todayISO()}.pptx` });
+    showToast('已匯出 PPT');
+  }catch(e){
+    console.error('PPT export failed', e);
+    showToast('PPT 匯出失敗，請重試', 'err');
+  }
+}
+
+function renderModuleTab(key){
+  const cfg = MODULES[key];
+  if(key==='repairs' && state.repairsView==='stats'){
+    return renderRepairStatsView();
+  }
+  let rows = state[key].filter(r => matchesSearch(r, state.search[key]))
+    .filter(r => {
+      if(!cfg.statusField) return true;
+      if(!state.filter[key]) return true;
+      return (r[cfg.statusField]||'') === state.filter[key] || (!r[cfg.statusField] && state.filter[key]==='__empty__');
+    });
+
+  if(key==='repairs'){
+    const lr = state.repairsListRange;
+    if(lr.from || lr.to){
+      rows = rows.filter(r=>{
+        const d = getRepairDate(r);
+        if(!d) return false;
+        if(lr.from && d < lr.from) return false;
+        if(lr.to && d > lr.to) return false;
+        return true;
+      });
+    }
+  }
+
+  const statusOpts = cfg.dynamicStatusSource ? (state[cfg.dynamicStatusSource]||[]) : cfg.statusOptions;
+  const statusFilterHTML = statusOpts ? `
+    <select class="filter-select" id="filter_${key}">
+      <option value="">全部狀態</option>
+      ${statusOpts.map(o=>`<option value="${esc(o)}" ${state.filter[key]===o?'selected':''}>${esc(o)}</option>`).join('')}
+    </select>` : '';
+
+  const repairsRangeHTML = key==='repairs' ? `
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">起 <input type="date" id="list_range_from" value="${esc(state.repairsListRange.from)}"></label>
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">迄 <input type="date" id="list_range_to" value="${esc(state.repairsListRange.to)}"></label>
+    ${(state.repairsListRange.from||state.repairsListRange.to) ? `<button class="btn btn-ghost btn-sm" onclick="app.clearRepairsListRange()">清除區間</button>` : ''}
+  ` : '';
+
+  const theadHTML = `<tr>${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
+  const toggleHTML = key==='repairs' ? renderRepairsViewToggle() : '';
+
+  const bodyHTML = rows.length ? rows.map(r=>`
+    <tr ${cfg.rowClick ? `class="row-clickable" onclick="app.openDetail('${key}','${r.id}')"` : ''}>
+      ${cfg.columns.map(c=>`<td>${c.render(r)}</td>`).join('')}
+      <td onclick="event.stopPropagation()">
+        <div class="row-actions">
+          ${cfg.rowClick ? '' : `<button class="btn btn-ghost btn-sm" onclick="app.openEdit('${key}','${r.id}')">編輯</button>`}
+          <button class="btn btn-danger btn-sm" onclick="app.confirmDelete('${key}','${r.id}')">刪除</button>
+        </div>
+      </td>
+    </tr>`).join('') : `<tr><td colspan="${cfg.columns.length+1}"><div class="empty-state"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div></td></tr>`;
+
+  return `
+    ${toggleHTML}
+    <div class="section-head" style="${key==='repairs'?'margin-top:0;':''}">
+      <h2>${cfg.icon} ${esc(cfg.title)}</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
+        <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':'工單'))}</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-toolbar">
+        <input class="search-input" id="search_${key}" placeholder="${esc(cfg.searchPlaceholder)}" value="${esc(state.search[key])}">
+        ${statusFilterHTML}
+        ${repairsRangeHTML}
+        <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆</span>
+      </div>
+      <div class="table-wrap">
+        <table><thead>${theadHTML}</thead><tbody>${bodyHTML}</tbody></table>
+      </div>
+    </div>
+  `;
+}
+
+function wireModuleTabEvents(key){
+  const cfg = MODULES[key];
+  if(key==='repairs' && state.repairsView==='stats'){
+    const fromEl = document.getElementById('stats_from');
+    const toEl = document.getElementById('stats_to');
+    if(fromEl) fromEl.addEventListener('change', e=>{ state.repairsStatsRange.from = e.target.value; renderContent(); });
+    if(toEl) toEl.addEventListener('change', e=>{ state.repairsStatsRange.to = e.target.value; renderContent(); });
+    return;
+  }
+  const searchEl = document.getElementById('search_'+key);
+  if(searchEl){
+    searchEl.addEventListener('input', (e)=>{
+      state.search[key] = e.target.value;
+      const pos = e.target.selectionStart;
+      renderContent();
+      const el2 = document.getElementById('search_'+key);
+      if(el2){ el2.focus(); el2.setSelectionRange(pos,pos); }
+    });
+  }
+  const filterEl = document.getElementById('filter_'+key);
+  if(filterEl){
+    filterEl.addEventListener('change', (e)=>{ state.filter[key]=e.target.value; renderContent(); });
+  }
+  if(key==='repairs'){
+    const rFromEl = document.getElementById('list_range_from');
+    const rToEl = document.getElementById('list_range_to');
+    if(rFromEl) rFromEl.addEventListener('change', e=>{ state.repairsListRange.from = e.target.value; renderContent(); });
+    if(rToEl) rToEl.addEventListener('change', e=>{ state.repairsListRange.to = e.target.value; renderContent(); });
+  }
+}
+
+function clearRepairsListRange(){
+  state.repairsListRange = { from:'', to:'' };
+  renderContent();
+}
+
+/* ============ Repair items checklist (維修工單 專用) ============ */
+function renderRepairItemsSection(data){
+  const catalog = state.repairItemCatalog || [];
+  const existing = Array.isArray(data['維修項目']) ? data['維修項目'] : [];
+  const otherItem = existing.find(x=>x.isOther);
+  const rowsHTML = catalog.map((it,idx)=>{
+    const match = existing.find(x=>x.name===it.name && !x.isOther);
+    const checked = !!match;
+    const qtyVal = match ? match.qty : (it.unit ? '' : 1);
+    return `<tr>
+      <td style="text-align:center;"><input type="checkbox" id="ri_chk_${idx}" data-price="${it.price}" onchange="app.updateRepairItemsCalc()" ${checked?'checked':''}></td>
+      <td>${esc(it.name)}</td>
+      <td class="cell-mono">$${it.price}${it.unit?('/'+esc(it.unit)):''}</td>
+      <td><input type="number" min="0" step="0.1" style="width:74px;" id="ri_qty_${idx}" value="${esc(qtyVal)}" oninput="app.updateRepairItemsCalc()" placeholder="${it.unit?esc(it.unit):'數量'}"></td>
+      <td class="cell-mono" id="ri_sub_${idx}">$0</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="field full">
+      <label>本次維修使用項目</label>
+      <div class="repair-items-wrap">
+        <table class="repair-items-table">
+          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th></tr></thead>
+          <tbody>
+            ${rowsHTML}
+            <tr>
+              <td style="text-align:center;"><input type="checkbox" id="ri_chk_other" onchange="app.updateRepairItemsCalc()" ${otherItem?'checked':''}></td>
+              <td><input type="text" id="ri_other_name" placeholder="其他項目名稱" value="${esc(otherItem?otherItem.name:'')}" style="width:100%;"></td>
+              <td><input type="number" min="0" id="ri_other_price" placeholder="單價" value="${esc(otherItem?otherItem.unitPrice:'')}" style="width:78px;" oninput="app.updateRepairItemsCalc()"></td>
+              <td><input type="number" min="0" step="0.1" id="ri_other_qty" placeholder="數量" value="${esc(otherItem?otherItem.qty:1)}" style="width:74px;" oninput="app.updateRepairItemsCalc()"></td>
+              <td class="cell-mono" id="ri_sub_other">$0</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="repair-items-total">
+          項目小計合計：<strong id="ri_total">$0</strong>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="app.applyRepairItemsTotal()">帶入維修金額</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateRepairItemsCalc(){
+  let total = 0;
+  (state.repairItemCatalog||[]).forEach((it,idx)=>{
+    const chk = document.getElementById('ri_chk_'+idx);
+    const qtyEl = document.getElementById('ri_qty_'+idx);
+    const subEl = document.getElementById('ri_sub_'+idx);
+    if(!chk || !qtyEl || !subEl) return;
+    const qty = parseFloat(qtyEl.value)||0;
+    const sub = chk.checked ? qty*it.price : 0;
+    subEl.textContent = '$'+sub.toLocaleString();
+    if(chk.checked) total += sub;
+  });
+  const otherChk = document.getElementById('ri_chk_other');
+  const otherPriceEl = document.getElementById('ri_other_price');
+  const otherQtyEl = document.getElementById('ri_other_qty');
+  const otherSubEl = document.getElementById('ri_sub_other');
+  if(otherChk && otherPriceEl && otherQtyEl && otherSubEl){
+    const price = parseFloat(otherPriceEl.value)||0;
+    const qty = parseFloat(otherQtyEl.value)||0;
+    const sub = otherChk.checked ? qty*price : 0;
+    otherSubEl.textContent = '$'+sub.toLocaleString();
+    if(otherChk.checked) total += sub;
+  }
+  const totalEl = document.getElementById('ri_total');
+  if(totalEl) totalEl.textContent = '$'+total.toLocaleString();
+}
+
+function applyRepairItemsTotal(){
+  const totalEl = document.getElementById('ri_total');
+  const amountEl = document.getElementById('fld_維修金額');
+  if(totalEl && amountEl){
+    amountEl.value = (totalEl.textContent||'').replace(/[^0-9.]/g,'');
+    showToast('已將項目小計帶入維修金額欄位');
+  }
+}
+
+function collectRepairItems(){
+  const items = [];
+  (state.repairItemCatalog||[]).forEach((it,idx)=>{
+    const chk = document.getElementById('ri_chk_'+idx);
+    if(chk && chk.checked){
+      const qtyEl = document.getElementById('ri_qty_'+idx);
+      const qty = parseFloat(qtyEl.value)||0;
+      items.push({name:it.name, unit:it.unit, unitPrice:it.price, qty, subtotal:+(qty*it.price).toFixed(2)});
+    }
+  });
+  const otherChk = document.getElementById('ri_chk_other');
+  if(otherChk && otherChk.checked){
+    const nameEl = document.getElementById('ri_other_name');
+    const priceEl = document.getElementById('ri_other_price');
+    const qtyEl = document.getElementById('ri_other_qty');
+    const name = (nameEl.value||'其他').trim() || '其他';
+    const unitPrice = parseFloat(priceEl.value)||0;
+    const qty = parseFloat(qtyEl.value)||1;
+    items.push({name, unit:null, unitPrice, qty, subtotal:+(qty*unitPrice).toFixed(2), isOther:true});
+  }
+  return items;
+}
+
+/* ============ Form field rendering ============ */
+function renderField(f, data){
+  const val = data[f.key];
+  const wrapClass = 'field' + (f.full ? ' full' : '');
+  let inputHTML = '';
+  if(f.type==='select'){
+    const opts = f.dynamicSource ? (state[f.dynamicSource]||[]) : f.options;
+    const knownVal = opts.includes(val);
+    inputHTML = `<select id="fld_${f.key}">
+      <option value="">— 未設定 —</option>
+      ${opts.map(o=>`<option value="${esc(o)}" ${val===o?'selected':''}>${esc(o)}</option>`).join('')}
+      ${(val && !knownVal) ? `<option value="${esc(val)}" selected>${esc(val)}（匯入值）</option>` : ''}
+    </select>`;
+  } else if(f.type==='textarea'){
+    inputHTML = `<textarea id="fld_${f.key}">${esc(val||'')}</textarea>`;
+  } else if(f.type==='multiselect'){
+    const selected = Array.isArray(val) ? val : [];
+    inputHTML = `<div class="checkbox-row">${f.options.map(o=>`
+      <label><input type="checkbox" value="${esc(o)}" data-multi="${f.key}" ${selected.includes(o)?'checked':''}> ${esc(o)}</label>
+    `).join('')}</div>`;
+  } else {
+    inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':'text'))}" id="fld_${f.key}" value="${esc(val||'')}">`;
+  }
+  return `<div class="${wrapClass}"><label>${esc(f.label)}${f.required?' *':''}</label>${inputHTML}</div>`;
+}
+
+function collectFormData(fields){
+  const out = {};
+  fields.forEach(f=>{
+    if(f.type==='multiselect'){
+      const boxes = document.querySelectorAll(`[data-multi="${f.key}"]:checked`);
+      out[f.key] = Array.from(boxes).map(b=>b.value);
+    } else {
+      const el = document.getElementById('fld_'+f.key);
+      out[f.key] = el ? el.value : '';
+    }
+  });
+  return out;
+}
+
+function openDetail(key, id){
+  const cfg = MODULES[key];
+  const item = state[key].find(r=>r.id===id);
+  if(!item) return;
+
+  const rowsHTML = cfg.fields.map(f=>{
+    const val = item[f.key];
+    let display;
+    if(f.type==='select' && cfg.statusField===f.key){
+      display = val ? badge(val) : '<span class="detail-empty">—</span>';
+    } else if(f.type==='multiselect'){
+      display = (Array.isArray(val) && val.length) ? val.map(v=>`<span class="badge badge-grey">${esc(v)}</span>`).join(' ') : '<span class="detail-empty">—</span>';
+    } else if(f.type==='date'){
+      display = val ? `<span class="cell-mono">${esc(fmtDate(val))}</span>` : '<span class="detail-empty">—</span>';
+    } else if(f.key==='照片' && val){
+      display = `<a href="${esc(val)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">開啟連結 ↗</a>`;
+    } else if(STATION_ID_FIELDS.includes(f.key)){
+      display = val ? esc(fmtStationId(val)) : '<span class="detail-empty">—</span>';
+    } else {
+      display = val ? esc(val).replace(/\n/g,'<br>') : '<span class="detail-empty">—</span>';
+    }
+    return `<div class="detail-row"><div class="detail-label">${esc(f.label)}</div><div class="detail-value">${display}</div></div>`;
+  }).join('');
+
+  let repairItemsHTML = '';
+  if(key==='repairs'){
+    const items = Array.isArray(item['維修項目']) ? item['維修項目'] : [];
+    const total = items.reduce((s,it)=>s+(it.subtotal||0),0);
+    repairItemsHTML = `<div class="detail-row"><div class="detail-label">本次使用項目</div><div class="detail-value">${
+      items.length ? `<div class="repair-items-detail">${items.map(it=>`<div class="repair-items-detail-row"><span>${esc(it.name)}</span><span>${it.qty}${it.unit?esc(it.unit):''} × $${it.unitPrice}</span><span class="cell-mono">$${(it.subtotal||0).toLocaleString()}</span></div>`).join('')}<div class="repair-items-detail-row" style="font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><span>合計</span><span></span><span class="cell-mono">$${total.toLocaleString()}</span></div></div>` : '<span class="detail-empty">—</span>'
+    }</div></div>`;
+  }
+
+  const titleField = cfg.titleField || (cfg.fields.find(f=>f.required)||{}).key || cfg.fields[0].key;
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>${cfg.icon} ${esc(item[titleField] || cfg.title)}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-list">${rowsHTML}${repairItemsHTML}</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger" onclick="app.confirmDelete('${key}','${id}')">刪除</button>
+      <div style="flex:1;"></div>
+      <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
+      <button class="btn btn-primary" onclick="app.openEdit('${key}','${id}')">✎ 編輯</button>
+    </div>
+  `);
+}
+
+function openCreate(key){
+  const cfg = MODULES[key];
+  openFormModal(key, {}, true);
+}
+function openEdit(key, id){
+  const item = state[key].find(r=>r.id===id);
+  if(!item) return;
+  openFormModal(key, item, false);
+}
+
+function openFormModal(key, data, isCreate){
+  const cfg = MODULES[key];
+  const fieldsHTML = cfg.fields.map(f=>renderField(f, data)).join('');
+  const repairItemsHTML = key==='repairs' ? renderRepairItemsSection(data) : '';
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>${isCreate?'新增':'編輯'}${cfg.title}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-grid">${fieldsHTML}${repairItemsHTML}</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="app.saveForm('${key}','${data.id||''}')">${isCreate?'新增':'儲存變更'}</button>
+    </div>
+  `);
+  if(key==='repairs') updateRepairItemsCalc();
+}
+
+async function saveForm(key, id){
+  const cfg = MODULES[key];
+  const requiredMissing = cfg.fields.filter(f=>f.required).find(f=>{
+    const el = document.getElementById('fld_'+f.key);
+    return el && !el.value.trim();
+  });
+  if(requiredMissing){
+    showToast(`請填寫「${requiredMissing.label}」`, 'err');
+    return;
+  }
+  const formData = collectFormData(cfg.fields);
+  STATION_ID_FIELDS.forEach(fk=>{ if(fk in formData) formData[fk] = fmtStationId(formData[fk]); });
+  if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
+  if(id){
+    const idx = state[key].findIndex(r=>r.id===id);
+    if(idx>-1) state[key][idx] = {...state[key][idx], ...formData};
+  } else {
+    state[key].push(withId({...formData}));
+  }
+  closeModal();
+  renderContent();
+  await persist(key);
+  showToast(id ? '已儲存變更' : '已新增資料');
+}
+
+function confirmDelete(key, id){
+  const cfg = MODULES[key];
+  openModalHTML(`
+    <div class="modal-head"><h3>刪除確認</h3><button class="modal-close" onclick="app.closeModal()">✕</button></div>
+    <div class="modal-body"><p>確定要刪除這筆${esc(cfg.title)}資料嗎？此動作無法復原。</p></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">取消</button>
+      <button class="btn btn-danger" onclick="app.doDelete('${key}','${id}')">確定刪除</button>
+    </div>
+  `);
+}
+async function doDelete(key, id){
+  state[key] = state[key].filter(r=>r.id!==id);
+  closeModal();
+  renderContent();
+  await persist(key);
+  showToast('已刪除');
+}
+
+/* ============ Overview tab (總覽) ============ */
+function renderOverviewTab(){
+  const openRepairs = state.repairs.filter(r=>r['維修狀況']!=='已完修');
+  const urgentRepairs = state.repairs.filter(r=>r['維修狀況']==='待修');
+  const tanksDone = state.tanks.filter(t=>t.status==='已清洗').length;
+  const tanksTotal = state.tanks.length || 1;
+  const tanksPct = Math.round((tanksDone/tanksTotal)*100);
+  const tanksLeft = state.tanks.filter(t=>t.status!=='已清洗').length;
+  const trucksOut = state.trucks.filter(t=>!t['歸還日期']);
+  const recentInstalls = [...state.installs].sort((a,b)=> String(b['裝機日期']||'').localeCompare(String(a['裝機日期']||''))).slice(0,5);
+
+  return `
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">🔧 待處理維修工單</div>
+        <div class="stat-value">${openRepairs.length}<small> / ${state.repairs.length} 筆</small></div>
+        <div class="stat-foot">${urgentRepairs.length} 筆為「待修」尚未派工</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label"><span class="tank-gauge" style="--fill:${tanksPct}%"></span>桶槽清洗完成率</div>
+        <div class="stat-value">${tanksPct}<small>%</small></div>
+        <div class="stat-foot">已清洗 ${tanksDone}／剩餘 ${tanksLeft}／共 ${state.tanks.length} 站</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🚚 貨車借出中</div>
+        <div class="stat-value">${trucksOut.length}<small> 台</small></div>
+        <div class="stat-foot">${trucksOut.map(t=>esc(t['車號']||'—')).join('、') || '目前所有車輛都在'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🏗️ 裝機累計</div>
+        <div class="stat-value">${state.installs.length}<small> 站</small></div>
+        <div class="stat-foot">最近一筆：${esc(recentInstalls[0]?.['站點名稱']||'—')}</div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2>🔧 待修工單</h2><button class="link-btn" onclick="app.goTab('repairs')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;">查看全部 →</button></div>
+    <div class="panel">
+      <div class="mini-list">
+        ${urgentRepairs.length ? urgentRepairs.slice(0,6).map(r=>`
+          <div class="mini-row">
+            <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
+            <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">${esc(fmtDate(r['報修日期']))}</div></div>
+          </div>`).join('') : `<div class="empty-state">目前沒有待修工單 🎉</div>`}
+      </div>
+    </div>
+
+    <div class="section-head"><h2>🏗️ 最近裝機</h2><button class="link-btn" onclick="app.goTab('installs')" style="background:none;border:none;color:var(--primary);font-weight:700;font-size:12px;">查看全部 →</button></div>
+    <div class="panel">
+      <div class="mini-list">
+        ${recentInstalls.length ? recentInstalls.map(r=>`
+          <div class="mini-row">
+            <div><div class="t">${esc(r['站點名稱']||'—')}</div><div class="s">${esc(r['地址']||'')}</div></div>
+            <div style="text-align:right;"><div class="s cell-mono">${esc(fmtDate(r['裝機日期']))}</div><div class="s">${esc(r['區域']||'')}</div></div>
+          </div>`).join('') : `<div class="empty-state">尚無裝機資料</div>`}
+      </div>
+    </div>
+  `;
+}
+/* ============ Excel Import (auto column detection) ============ */
+
+const FIELD_ALIASES = {
+  repairs: {
+    '狀況':'維修狀況','狀態':'維修狀況','維修人員':'維修人員1名稱','維修人員1':'維修人員1名稱',
+    '客戶':'客戶名稱','站點':'貨品名稱','站點序號':'貨品序號','貨品':'貨品名稱',
+    '報修日':'報修日期','報修單':'報修單號','金額':'維修金額','維修費用':'維修金額',
+    '保固':'使用類別','保固類別':'使用類別','出庫保固日':'出庫保固','發票':'發票號碼',
+    '製單':'製單人員名稱','製單人員':'製單人員名稱','結案':'結案日期','出庫':'出庫日期',
+    '備註說明':'備註','狀況說明':'狀況描述','處理說明':'維修描述','維修內容':'維修描述'
+  },
+  tanks: {
+    '站號':'station_id','站點序號':'station_id','站點編號':'station_id',
+    '站點名稱':'station','站點':'station','名稱':'station',
+    '清洗狀態':'status','狀態':'status',
+    '地址':'address','地址與聯絡資訊':'address','聯絡資訊':'address','聯絡方式':'address'
+  },
+  installs: {
+    '站號':'站點編號','客戶':'客戶編號','站名':'站點名稱','站點':'站點名稱',
+    '設備':'設備類型','桶槽':'桶槽形式','裝機日':'裝機日期',
+    '聯絡電話':'電話','窗口':'電話','電話號碼':'電話','照片連結':'照片','照片網址':'照片'
+  },
+  trucks: {
+    '車輛':'車號','車牌':'車號','用途說明':'用途',
+    '借用日期':'領用日期','借用時間':'領用時間','歸還時間':'歸還時間',
+    '借用人':'領用人','領用人簽名':'領用人','保管人簽收':'保管人'
+  }
+};
+
+function matchFieldForHeader(header, moduleKey){
+  const h = String(header||'').trim();
+  if(!h) return null;
+  const cfg = MODULES[moduleKey];
+  const exact = cfg.fields.find(f=>f.key===h || f.label===h);
+  if(exact) return exact.key;
+  const alias = (FIELD_ALIASES[moduleKey]||{})[h];
+  if(alias) return alias;
+  const fuzzy = cfg.fields.find(f=> h.includes(f.label) || f.label.includes(h) || h.includes(f.key) || (f.key.length>1 && f.key.includes(h)));
+  if(fuzzy) return fuzzy.key;
+  return null;
+}
+
+function parseSheetRows(ws, moduleKey){
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:'', dateNF:'yyyy-mm-dd'});
+  let bestIdx = 0, bestScore = -1;
+  const scanLimit = Math.min(15, aoa.length);
+  for(let i=0;i<scanLimit;i++){
+    const row = aoa[i];
+    if(!row || !row.length) continue;
+    let score = 0;
+    row.forEach(cell=>{ if(matchFieldForHeader(cell, moduleKey)) score++; });
+    if(score > bestScore){ bestScore = score; bestIdx = i; }
+  }
+  const headerRow = (aoa[bestIdx]||[]).map(h=>String(h||'').trim());
+  const dataRows = aoa.slice(bestIdx+1).filter(r=>r && r.some(c=>String(c||'').trim()!==''));
+  return {headerRow, dataRows};
+}
+
+function openImport(key){
+  state.importCtx = {key};
+  const input = document.getElementById('importFileInput');
+  input.value = '';
+  input.click();
+}
+
+function wireImportInput(){
+  const input = document.getElementById('importFileInput');
+  input.addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const key = state.importCtx.key;
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array', cellDates:true});
+      state.importCtx.workbook = wb;
+      state.importCtx.fileName = file.name;
+      state.importCtx.sheetName = wb.SheetNames[0];
+      loadImportSheet();
+    }catch(err){
+      console.error(err);
+      showToast('讀取檔案失敗，請確認檔案格式', 'err');
+    }
+  });
+}
+
+function loadImportSheet(){
+  const ctx = state.importCtx;
+  const ws = ctx.workbook.Sheets[ctx.sheetName];
+  const {headerRow, dataRows} = parseSheetRows(ws, ctx.key);
+  ctx.headerRow = headerRow;
+  ctx.dataRows = dataRows;
+  renderImportPreview();
+}
+
+function switchImportSheet(name){
+  state.importCtx.sheetName = name;
+  loadImportSheet();
+}
+
+function renderImportPreview(){
+  const ctx = state.importCtx;
+  const cfg = MODULES[ctx.key];
+  const wb = ctx.workbook;
+
+  const sheetTabsHTML = wb.SheetNames.length > 1 ? `
+    <div class="sheet-tabs">
+      ${wb.SheetNames.map(n=>`<button class="sheet-tab ${n===ctx.sheetName?'active':''}" onclick="app.switchImportSheet('${esc(n).replace(/'/g,"\\'")}')">${esc(n)}</button>`).join('')}
+    </div>` : '';
+
+  const fieldOptionsHTML = (matchedKey)=> `
+    <option value="">— 略過此欄 —</option>
+    ${cfg.fields.map(f=>`<option value="${esc(f.key)}" ${matchedKey===f.key?'selected':''}>${esc(f.label)}</option>`).join('')}
+  `;
+
+  const mappingRows = ctx.headerRow.map((h, ci)=>{
+    if(!h) return '';
+    const matched = matchFieldForHeader(h, ctx.key);
+    const sample = (ctx.dataRows[0] && ctx.dataRows[0][ci]) || '';
+    return `
+      <tr>
+        <td><div class="map-src">${esc(h)}</div><div class="map-sample">範例：${esc(truncate(String(sample),24)) || '—'}</div></td>
+        <td><select data-col="${ci}">${fieldOptionsHTML(matched)}</select></td>
+        <td>${matched ? '<span class="map-status ok">自動對應</span>' : '<span class="map-status skip">未對應</span>'}</td>
+      </tr>`;
+  }).join('');
+
+  const matchedCount = ctx.headerRow.filter(h=>h && matchFieldForHeader(h, ctx.key)).length;
+
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>📥 匯入 Excel － ${esc(cfg.title)}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 4px;color:var(--ink-soft);font-size:13px;">檔案：<b style="color:var(--ink);">${esc(ctx.fileName)}</b></p>
+      ${sheetTabsHTML}
+      <div class="import-summary">
+        <span>共 <b>${ctx.dataRows.length}</b> 筆資料列</span>
+        <span>自動對應 <b>${matchedCount}</b> / ${ctx.headerRow.filter(Boolean).length} 個欄位</span>
+      </div>
+      <div class="table-wrap">
+        <table class="map-table">
+          <thead><tr><th>Excel 欄位</th><th>對應到</th><th></th></tr></thead>
+          <tbody>${mappingRows}</tbody>
+        </table>
+      </div>
+      <p style="margin:12px 0 0;font-size:12px;color:var(--ink-faint);">系統已自動辨識欄位名稱並對應，你可以用下拉選單調整任何一欄的對應結果，或選擇「略過此欄」不匯入。</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="app.confirmImport()">確認匯入 ${ctx.dataRows.length} 筆</button>
+    </div>
+  `);
+  document.querySelector('.modal').classList.add('import-modal');
+}
+
+async function confirmImport(){
+  const ctx = state.importCtx;
+  const key = ctx.key;
+  const cfg = MODULES[key];
+  const selects = document.querySelectorAll('#modalRoot [data-col]');
+  const colToField = {};
+  selects.forEach(s=>{ if(s.value) colToField[+s.dataset.col] = s.value; });
+
+  if(Object.keys(colToField).length === 0){
+    showToast('請至少對應一個欄位再匯入', 'err');
+    return;
+  }
+
+  let imported = 0;
+  ctx.dataRows.forEach(row=>{
+    const obj = {};
+    let hasValue = false;
+    Object.entries(colToField).forEach(([ci, fieldKey])=>{
+      let val = row[+ci];
+      if(val === undefined || val === null) val = '';
+      val = String(val).trim();
+      const fieldDef = cfg.fields.find(f=>f.key===fieldKey);
+      if(fieldDef && fieldDef.type==='multiselect'){
+        obj[fieldKey] = val ? val.split(/[、,，\/／\s]+/).filter(Boolean) : [];
+      } else if(STATION_ID_FIELDS.includes(fieldKey)){
+        obj[fieldKey] = fmtStationId(val);
+      } else {
+        obj[fieldKey] = val;
+      }
+      if(val) hasValue = true;
+    });
+    if(hasValue){
+      state[key].push(withId(obj));
+      imported++;
+    }
+  });
+
+  closeModal();
+  renderContent();
+  await persist(key);
+  showToast(`已匯入 ${imported} 筆資料到「${cfg.title}」`);
+  state.importCtx = null;
+}
+/* ============ Vehicle / Engineer list manager (used by 貨車登記) ============ */
+const LIST_MANAGER_CFG = {
+  vehicles: { title:'管理車輛', icon:'🚚', itemLabel:'車號', placeholder:'輸入車號，例如 BXG-0680', emptyMsg:'尚無車輛，請在下方新增。' },
+  engineers: { title:'管理工程人員', icon:'👷', itemLabel:'工程人員', placeholder:'輸入姓名', emptyMsg:'尚無工程人員，請在下方新增。' },
+  repairStatuses: { title:'管理維修狀況', icon:'⚙️', itemLabel:'狀態', placeholder:'輸入狀態名稱，例如 待修', emptyMsg:'尚無狀態選項，請在下方新增。' },
+};
+
+function renderListManagerBody(kind){
+  const cfg = LIST_MANAGER_CFG[kind];
+  const items = state[kind] || [];
+  const rowsHTML = items.length ? items.map((name, i)=>`
+    <div class="list-mgr-row">
+      <input type="text" value="${esc(name)}" data-lm-idx="${i}">
+      <button class="btn btn-danger btn-sm btn-icon-only" title="刪除" onclick="app.removeListItem('${kind}',${i})">✕</button>
+    </div>`).join('') : `<div class="empty-state" style="padding:20px;"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div>`;
+
+  return `
+    <div class="modal-head">
+      <h3>${cfg.icon} ${esc(cfg.title)}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="list-mgr-rows" id="listMgrRows">${rowsHTML}</div>
+      <div class="list-mgr-add">
+        <input type="text" id="listMgrNewInput" placeholder="${esc(cfg.placeholder)}">
+        <button class="btn btn-primary btn-sm" onclick="app.addListItem('${kind}')">＋ 新增</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
+      <button class="btn btn-primary" onclick="app.saveListManager('${kind}')">儲存變更</button>
+    </div>`;
+}
+
+function openListManager(kind){
+  openModalHTML(renderListManagerBody(kind));
+  const input = document.getElementById('listMgrNewInput');
+  if(input) input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addListItem(kind); } });
+}
+
+function refreshListManager(kind){
+  const root = document.getElementById('modalRoot');
+  if(!root || !root.querySelector('.modal')) return;
+  root.querySelector('.modal').innerHTML = renderListManagerBody(kind);
+  const input = document.getElementById('listMgrNewInput');
+  if(input) input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addListItem(kind); } });
+}
+
+function addListItem(kind){
+  const input = document.getElementById('listMgrNewInput');
+  const val = input ? input.value.trim() : '';
+  if(!val){ showToast('請輸入內容', 'err'); return; }
+  if(!state[kind]) state[kind] = [];
+  state[kind].push(val);
+  refreshListManager(kind);
+}
+
+function removeListItem(kind, idx){
+  state[kind].splice(idx,1);
+  refreshListManager(kind);
+}
+
+async function saveListManager(kind){
+  const inputs = document.querySelectorAll('#listMgrRows [data-lm-idx]');
+  inputs.forEach(el=>{
+    const idx = +el.dataset.lmIdx;
+    state[kind][idx] = el.value.trim();
+  });
+  state[kind] = state[kind].filter(v=>v);
+  closeModal();
+  renderContent();
+  await persist(kind);
+  showToast('已儲存變更');
+}
+
+/* ============ Repair item catalog manager (維修項目／金額 維護) ============ */
+function renderRepairItemCatalogBody(){
+  const items = state.repairItemCatalog || [];
+  const rowsHTML = items.length ? items.map((it,i)=>`
+    <div class="ric-row">
+      <input type="text" value="${esc(it.name)}" data-ric-name="${i}" placeholder="項目名稱">
+      <input type="text" value="${esc(it.unit||'')}" data-ric-unit="${i}" placeholder="單位（選填）">
+      <input type="number" min="0" value="${esc(it.price)}" data-ric-price="${i}" placeholder="單價">
+      <button class="btn btn-danger btn-sm btn-icon-only" title="刪除" onclick="app.removeRepairItemCatalog(${i})">✕</button>
+    </div>`).join('') : `<div class="empty-state" style="padding:20px;"><span class="emoji">🧰</span>尚無維修項目，請在下方新增。</div>`;
+
+  return `
+    <div class="modal-head">
+      <h3>🧰 管理維修項目與金額</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="ric-rows" id="ricRows">${rowsHTML}</div>
+      <div class="ric-add">
+        <input type="text" id="ricNewName" placeholder="項目名稱，例如 濾心">
+        <input type="text" id="ricNewUnit" placeholder="單位（選填）">
+        <input type="number" min="0" id="ricNewPrice" placeholder="單價">
+        <button class="btn btn-primary btn-sm" onclick="app.addRepairItemCatalog()">＋ 新增</button>
+      </div>
+      <p style="margin:12px 0 0;font-size:12px;color:var(--ink-faint);">修改名稱／單位／單價後請按「儲存變更」。異動只會套用到之後新增或編輯的工單，已建立的工單會保留當時記錄的金額，不會被回溯更動。</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
+      <button class="btn btn-primary" onclick="app.saveRepairItemCatalog()">儲存變更</button>
+    </div>`;
+}
+
+function openRepairItemCatalogManager(){
+  openModalHTML(renderRepairItemCatalogBody());
+}
+
+function refreshRepairItemCatalogManager(){
+  const root = document.getElementById('modalRoot');
+  if(!root || !root.querySelector('.modal')) return;
+  root.querySelector('.modal').innerHTML = renderRepairItemCatalogBody();
+}
+
+function addRepairItemCatalog(){
+  const nameEl = document.getElementById('ricNewName');
+  const unitEl = document.getElementById('ricNewUnit');
+  const priceEl = document.getElementById('ricNewPrice');
+  const name = nameEl ? nameEl.value.trim() : '';
+  if(!name){ showToast('請輸入項目名稱', 'err'); return; }
+  const unit = unitEl ? unitEl.value.trim() : '';
+  const price = parseFloat(priceEl ? priceEl.value : '') || 0;
+  if(!state.repairItemCatalog) state.repairItemCatalog = [];
+  state.repairItemCatalog.push({ name, unit: unit || null, price });
+  refreshRepairItemCatalogManager();
+}
+
+function removeRepairItemCatalog(idx){
+  state.repairItemCatalog.splice(idx,1);
+  refreshRepairItemCatalogManager();
+}
+
+async function saveRepairItemCatalog(){
+  const root = document.getElementById('modalRoot');
+  root.querySelectorAll('[data-ric-name]').forEach(el=>{
+    const idx = +el.dataset.ricName;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].name = el.value.trim();
+  });
+  root.querySelectorAll('[data-ric-unit]').forEach(el=>{
+    const idx = +el.dataset.ricUnit;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].unit = el.value.trim() || null;
+  });
+  root.querySelectorAll('[data-ric-price]').forEach(el=>{
+    const idx = +el.dataset.ricPrice;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].price = parseFloat(el.value) || 0;
+  });
+  state.repairItemCatalog = state.repairItemCatalog.filter(it=>it.name);
+  closeModal();
+  renderContent();
+  await persist('repairItemCatalog');
+  showToast('已儲存維修項目設定');
+}
+
+
+/* ============ 管理維護 tab（集中所有「管理」入口） ============ */
+function renderSettingsTab(){
+  const cards = [
+    { icon:'⚙️', title:'管理維修狀況', desc:'設定維修工單可選擇的狀況選項（如：待修、維修中、已完修…）。', count:`${(state.repairStatuses||[]).length} 個狀態`, action:`app.openListManager('repairStatuses')` },
+    { icon:'🧰', title:'管理維修項目', desc:'設定維修工單中可勾選的維修品項與單價，供工單自動試算金額。', count:`${(state.repairItemCatalog||[]).length} 個品項`, action:`app.openRepairItemCatalogManager()` },
+    { icon:'🚚', title:'管理車輛', desc:'設定貨車領用登記時可選擇的車號清單。', count:`${(state.vehicles||[]).length} 台車輛`, action:`app.openListManager('vehicles')` },
+    { icon:'👷', title:'管理工程人員', desc:'設定貨車領用登記時可選擇的工程人員名單。', count:`${(state.engineers||[]).length} 位人員`, action:`app.openListManager('engineers')` },
+  ];
+  return `
+    <div class="section-head" style="margin-top:0;">
+      <h2>⚙️ 管理維護</h2>
+      <span class="hint">集中管理各分頁使用的設定選項</span>
+    </div>
+    <div class="settings-grid">
+      ${cards.map(c=>`
+        <div class="settings-card">
+          <div class="sc-icon">${c.icon}</div>
+          <div class="sc-title">${esc(c.title)}</div>
+          <div class="sc-desc">${esc(c.desc)}</div>
+          <div class="sc-count">${esc(c.count)}</div>
+          <button class="btn btn-primary btn-sm" onclick="${c.action}">前往管理</button>
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+const TAB_LIST = [
+  {key:'overview', label:'總覽', icon:'📊'},
+  {key:'repairs', label:'維修工單', icon:'🔧'},
+  {key:'tanks', label:'桶槽清洗', icon:'🛢️'},
+  {key:'installs', label:'裝機管理', icon:'🏗️'},
+  {key:'trucks', label:'貨車登記', icon:'🚚'},
+  {key:'settings', label:'管理維護', icon:'⚙️'},
+];
+
+function renderTabs(){
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = TAB_LIST.map(t=>`
+    <button class="tab-btn ${state.activeTab===t.key?'active':''}" onclick="app.goTab('${t.key}')">
+      <span class="tab-ico">${t.icon}</span>${esc(t.label)}
+    </button>`).join('');
+}
+
+function renderContent(){
+  const el = document.getElementById('content');
+  let html = '';
+  if(state.activeTab==='overview') html = renderOverviewTab();
+  else if(state.activeTab==='settings') html = renderSettingsTab();
+  else if(MODULES[state.activeTab]) html = renderModuleTab(state.activeTab);
+  el.innerHTML = html;
+
+  if(MODULES[state.activeTab]) wireModuleTabEvents(state.activeTab);
+  renderTabs();
+}
+
+function goTab(key){
+  state.activeTab = key;
+  renderContent();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* ============ Expose global app API for inline handlers ============ */
+window.app = {
+  goTab, openCreate, openEdit, openDetail, saveForm, confirmDelete, doDelete, closeModal,
+  openImport, switchImportSheet, confirmImport,
+  openListManager, addListItem, removeListItem, saveListManager,
+  setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal,
+  clearRepairsListRange, exportStatsPPT,
+  openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
+  quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex
+};
+
+/* ============ Init ============ */
+async function init(){
+  renderTabs();
+  document.getElementById('content').innerHTML = `<div class="empty-state"><span class="emoji">⏳</span>載入資料中…</div>`;
+  wireImportInput();
+  await loadAll();
+  renderContent();
+}
+document.addEventListener('DOMContentLoaded', init);
+
+</script>
+</body>
+</html>
