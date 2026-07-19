@@ -235,6 +235,15 @@ tbody tr:hover{background:#F7F9FA;}
 }
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-tint);}
 .field textarea{resize:vertical;min-height:56px;}
+.repair-items-wrap{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.repair-items-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.repair-items-table th{background:var(--surface-alt);text-align:left;padding:7px 8px;font-weight:600;color:var(--ink-soft);}
+.repair-items-table td{padding:6px 8px;border-top:1px solid var(--border);vertical-align:middle;}
+.repair-items-table input[type="number"], .repair-items-table input[type="text"]{padding:4px 6px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;}
+.repair-items-table input[type="checkbox"]{width:16px;height:16px;}
+.repair-items-total{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-alt);font-size:13px;}
+.repair-items-detail{display:flex;flex-direction:column;gap:4px;}
+.repair-items-detail-row{display:grid;grid-template-columns:1fr auto auto;gap:14px;font-size:13px;}
 .checkbox-row{display:flex;flex-wrap:wrap;gap:8px 14px;padding-top:2px;}
 .checkbox-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;flex:0 0 auto;}
 .checkbox-row input[type="checkbox"]{flex:0 0 auto;}
@@ -411,7 +420,9 @@ const state = {
   vehicles: [],
   repairStatuses: [],
   search: { repairs:'', tanks:'', installs:'', trucks:'' },
-  filter: { repairs:'', tanks:'' }
+  filter: { repairs:'', tanks:'' },
+  repairsView: 'list',
+  repairsStatsRange: { from:'', to:'' }
 };
 
 async function loadAll(){
@@ -517,6 +528,31 @@ function openModalHTML(html){
     if(e.target.id==='modalBackdrop') closeModal();
   });
 }
+/* ============ Repair item price catalog (for 維修工單 item checklist) ============ */
+const REPAIR_ITEM_CATALOG = [
+  {name:'透明包紗管', unit:'米', price:50},
+  {name:'黑色高壓管', unit:'米', price:190},
+  {name:'桶槽清潔（含濾心更換）', unit:null, price:3000},
+  {name:'流量計（iDepot）', unit:null, price:6600},
+  {name:'流量計(K24)', unit:null, price:3800},
+  {name:'加注槍', unit:null, price:3800},
+  {name:'加壓馬達', unit:null, price:4300},
+  {name:'COMBO馬達', unit:null, price:3800},
+  {name:'i-Depot電磁閥', unit:null, price:1200},
+  {name:'ㄇ型管組件', unit:null, price:6900},
+  {name:'液位計', unit:null, price:7300},
+  {name:'IDEPOT 主機-螢幕（毀損）', unit:null, price:7000},
+  {name:'IDEPOT 主機-網卡', unit:null, price:4000},
+  {name:'IDEPOT 主機', unit:null, price:700},
+  {name:'IDEPOT主機塑膠外殼更換', unit:null, price:3900},
+  {name:'更換管束', unit:null, price:100},
+  {name:'濾心', unit:null, price:40},
+  {name:'漏電斷路器', unit:null, price:800},
+  {name:'更換槍頭感應器', unit:null, price:800},
+  {name:'加注機不鏽鋼上座', unit:null, price:6000},
+  {name:'加注機不鏽鋼底座', unit:null, price:9000},
+];
+
 /* ============ Module configuration ============ */
 /* Each module: fields (for add/edit form) + columns (for table) */
 
@@ -637,8 +673,82 @@ const MODULES = {
 };
 /* ============ Generic list-module rendering (repairs / tanks / installs / trucks) ============ */
 
+function renderRepairsViewToggle(){
+  return `<div style="display:flex;gap:8px;margin:28px 0 12px;">
+    <button class="btn btn-sm ${state.repairsView!=='stats'?'btn-primary':'btn-ghost'}" onclick="app.setRepairsView('list')">📋 工單列表</button>
+    <button class="btn btn-sm ${state.repairsView==='stats'?'btn-primary':'btn-ghost'}" onclick="app.setRepairsView('stats')">📈 維修品項統計</button>
+  </div>`;
+}
+
+function setRepairsView(v){
+  state.repairsView = v;
+  renderContent();
+}
+function clearStatsRange(){
+  state.repairsStatsRange = { from:'', to:'' };
+  renderContent();
+}
+
+function renderRepairStatsView(){
+  const cfg = MODULES.repairs;
+  const range = state.repairsStatsRange;
+  const getRepairDate = r => r['結案日期'] || r['報修日期'] || r['出庫日期'] || '';
+  const filtered = state.repairs.filter(r=>{
+    if(!range.from && !range.to) return true;
+    const d = getRepairDate(r);
+    if(!d) return false;
+    if(range.from && d < range.from) return false;
+    if(range.to && d > range.to) return false;
+    return true;
+  });
+  const agg = {};
+  filtered.forEach(r=>{
+    (Array.isArray(r['維修項目'])?r['維修項目']:[]).forEach(it=>{
+      if(!agg[it.name]) agg[it.name] = { count:0, qtySum:0, amountSum:0, unit:it.unit };
+      agg[it.name].count += 1;
+      agg[it.name].qtySum += (it.qty||0);
+      agg[it.name].amountSum += (it.subtotal || ((it.qty||0)*(it.unitPrice||0)) || 0);
+    });
+  });
+  const rows = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count);
+  const totalAmount = rows.reduce((s,[,v])=>s+v.amountSum,0);
+
+  return `
+    ${renderRepairsViewToggle()}
+    <div class="section-head">
+      <h2>${cfg.icon} 維修品項統計</h2>
+    </div>
+    <div class="panel">
+      <div class="panel-toolbar" style="gap:14px;">
+        <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">開始日期 <input type="date" id="stats_from" value="${esc(range.from)}"></label>
+        <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">結束日期 <input type="date" id="stats_to" value="${esc(range.to)}"></label>
+        <button class="btn btn-ghost btn-sm" onclick="app.clearStatsRange()">清除區間</button>
+        <span class="hint" style="color:var(--ink-faint);font-size:12px;">${(range.from||range.to)?`區間內共 ${filtered.length} 筆工單、`:'全部工單、'}使用 ${rows.length} 種品項</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>維修品項</th><th>使用次數</th><th>累計數量</th><th>累計金額</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map(([name,v])=>`
+              <tr>
+                <td class="cell-main">${esc(name)}</td>
+                <td class="cell-mono">${v.count}</td>
+                <td class="cell-mono">${v.qtySum}${v.unit?esc(v.unit):''}</td>
+                <td class="cell-mono">$${v.amountSum.toLocaleString()}</td>
+              </tr>`).join('') : `<tr><td colspan="4"><div class="empty-state"><span class="emoji">📈</span>此區間內尚無維修品項紀錄，請先於工單中勾選使用項目。</div></td></tr>`}
+          </tbody>
+          ${rows.length ? `<tfoot><tr><td class="cell-main">總計</td><td class="cell-mono">—</td><td class="cell-mono">—</td><td class="cell-mono">$${totalAmount.toLocaleString()}</td></tr></tfoot>` : ''}
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderModuleTab(key){
   const cfg = MODULES[key];
+  if(key==='repairs' && state.repairsView==='stats'){
+    return renderRepairStatsView();
+  }
   const rows = state[key].filter(r => matchesSearch(r, state.search[key]))
     .filter(r => {
       if(!cfg.statusField) return true;
@@ -654,6 +764,7 @@ function renderModuleTab(key){
     </select>` : '';
 
   const theadHTML = `<tr>${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
+  const toggleHTML = key==='repairs' ? renderRepairsViewToggle() : '';
 
   const bodyHTML = rows.length ? rows.map(r=>`
     <tr ${cfg.rowClick ? `class="row-clickable" onclick="app.openDetail('${key}','${r.id}')"` : ''}>
@@ -667,7 +778,8 @@ function renderModuleTab(key){
     </tr>`).join('') : `<tr><td colspan="${cfg.columns.length+1}"><div class="empty-state"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div></td></tr>`;
 
   return `
-    <div class="section-head">
+    ${toggleHTML}
+    <div class="section-head" style="${key==='repairs'?'margin-top:0;':''}">
       <h2>${cfg.icon} ${esc(cfg.title)}</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${key==='trucks' ? `
@@ -696,6 +808,13 @@ function renderModuleTab(key){
 
 function wireModuleTabEvents(key){
   const cfg = MODULES[key];
+  if(key==='repairs' && state.repairsView==='stats'){
+    const fromEl = document.getElementById('stats_from');
+    const toEl = document.getElementById('stats_to');
+    if(fromEl) fromEl.addEventListener('change', e=>{ state.repairsStatsRange.from = e.target.value; renderContent(); });
+    if(toEl) toEl.addEventListener('change', e=>{ state.repairsStatsRange.to = e.target.value; renderContent(); });
+    return;
+  }
   const searchEl = document.getElementById('search_'+key);
   if(searchEl){
     searchEl.addEventListener('input', (e)=>{
@@ -710,6 +829,107 @@ function wireModuleTabEvents(key){
   if(filterEl){
     filterEl.addEventListener('change', (e)=>{ state.filter[key]=e.target.value; renderContent(); });
   }
+}
+
+/* ============ Repair items checklist (維修工單 專用) ============ */
+function renderRepairItemsSection(data){
+  const existing = Array.isArray(data['維修項目']) ? data['維修項目'] : [];
+  const otherItem = existing.find(x=>x.isOther);
+  const rowsHTML = REPAIR_ITEM_CATALOG.map((it,idx)=>{
+    const match = existing.find(x=>x.name===it.name && !x.isOther);
+    const checked = !!match;
+    const qtyVal = match ? match.qty : (it.unit ? '' : 1);
+    return `<tr>
+      <td style="text-align:center;"><input type="checkbox" id="ri_chk_${idx}" data-price="${it.price}" onchange="app.updateRepairItemsCalc()" ${checked?'checked':''}></td>
+      <td>${esc(it.name)}</td>
+      <td class="cell-mono">$${it.price}${it.unit?('/'+esc(it.unit)):''}</td>
+      <td><input type="number" min="0" step="0.1" style="width:74px;" id="ri_qty_${idx}" value="${esc(qtyVal)}" oninput="app.updateRepairItemsCalc()" placeholder="${it.unit?esc(it.unit):'數量'}"></td>
+      <td class="cell-mono" id="ri_sub_${idx}">$0</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="field full">
+      <label>本次維修使用項目</label>
+      <div class="repair-items-wrap">
+        <table class="repair-items-table">
+          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th></tr></thead>
+          <tbody>
+            ${rowsHTML}
+            <tr>
+              <td style="text-align:center;"><input type="checkbox" id="ri_chk_other" onchange="app.updateRepairItemsCalc()" ${otherItem?'checked':''}></td>
+              <td><input type="text" id="ri_other_name" placeholder="其他項目名稱" value="${esc(otherItem?otherItem.name:'')}" style="width:100%;"></td>
+              <td><input type="number" min="0" id="ri_other_price" placeholder="單價" value="${esc(otherItem?otherItem.unitPrice:'')}" style="width:78px;" oninput="app.updateRepairItemsCalc()"></td>
+              <td><input type="number" min="0" step="0.1" id="ri_other_qty" placeholder="數量" value="${esc(otherItem?otherItem.qty:1)}" style="width:74px;" oninput="app.updateRepairItemsCalc()"></td>
+              <td class="cell-mono" id="ri_sub_other">$0</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="repair-items-total">
+          項目小計合計：<strong id="ri_total">$0</strong>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="app.applyRepairItemsTotal()">帶入維修金額</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateRepairItemsCalc(){
+  let total = 0;
+  REPAIR_ITEM_CATALOG.forEach((it,idx)=>{
+    const chk = document.getElementById('ri_chk_'+idx);
+    const qtyEl = document.getElementById('ri_qty_'+idx);
+    const subEl = document.getElementById('ri_sub_'+idx);
+    if(!chk || !qtyEl || !subEl) return;
+    const qty = parseFloat(qtyEl.value)||0;
+    const sub = chk.checked ? qty*it.price : 0;
+    subEl.textContent = '$'+sub.toLocaleString();
+    if(chk.checked) total += sub;
+  });
+  const otherChk = document.getElementById('ri_chk_other');
+  const otherPriceEl = document.getElementById('ri_other_price');
+  const otherQtyEl = document.getElementById('ri_other_qty');
+  const otherSubEl = document.getElementById('ri_sub_other');
+  if(otherChk && otherPriceEl && otherQtyEl && otherSubEl){
+    const price = parseFloat(otherPriceEl.value)||0;
+    const qty = parseFloat(otherQtyEl.value)||0;
+    const sub = otherChk.checked ? qty*price : 0;
+    otherSubEl.textContent = '$'+sub.toLocaleString();
+    if(otherChk.checked) total += sub;
+  }
+  const totalEl = document.getElementById('ri_total');
+  if(totalEl) totalEl.textContent = '$'+total.toLocaleString();
+}
+
+function applyRepairItemsTotal(){
+  const totalEl = document.getElementById('ri_total');
+  const amountEl = document.getElementById('fld_維修金額');
+  if(totalEl && amountEl){
+    amountEl.value = (totalEl.textContent||'').replace(/[^0-9.]/g,'');
+    showToast('已將項目小計帶入維修金額欄位');
+  }
+}
+
+function collectRepairItems(){
+  const items = [];
+  REPAIR_ITEM_CATALOG.forEach((it,idx)=>{
+    const chk = document.getElementById('ri_chk_'+idx);
+    if(chk && chk.checked){
+      const qtyEl = document.getElementById('ri_qty_'+idx);
+      const qty = parseFloat(qtyEl.value)||0;
+      items.push({name:it.name, unit:it.unit, unitPrice:it.price, qty, subtotal:+(qty*it.price).toFixed(2)});
+    }
+  });
+  const otherChk = document.getElementById('ri_chk_other');
+  if(otherChk && otherChk.checked){
+    const nameEl = document.getElementById('ri_other_name');
+    const priceEl = document.getElementById('ri_other_price');
+    const qtyEl = document.getElementById('ri_other_qty');
+    const name = (nameEl.value||'其他').trim() || '其他';
+    const unitPrice = parseFloat(priceEl.value)||0;
+    const qty = parseFloat(qtyEl.value)||1;
+    items.push({name, unit:null, unitPrice, qty, subtotal:+(qty*unitPrice).toFixed(2), isOther:true});
+  }
+  return items;
 }
 
 /* ============ Form field rendering ============ */
@@ -776,6 +996,15 @@ function openDetail(key, id){
     return `<div class="detail-row"><div class="detail-label">${esc(f.label)}</div><div class="detail-value">${display}</div></div>`;
   }).join('');
 
+  let repairItemsHTML = '';
+  if(key==='repairs'){
+    const items = Array.isArray(item['維修項目']) ? item['維修項目'] : [];
+    const total = items.reduce((s,it)=>s+(it.subtotal||0),0);
+    repairItemsHTML = `<div class="detail-row"><div class="detail-label">本次使用項目</div><div class="detail-value">${
+      items.length ? `<div class="repair-items-detail">${items.map(it=>`<div class="repair-items-detail-row"><span>${esc(it.name)}</span><span>${it.qty}${it.unit?esc(it.unit):''} × $${it.unitPrice}</span><span class="cell-mono">$${(it.subtotal||0).toLocaleString()}</span></div>`).join('')}<div class="repair-items-detail-row" style="font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><span>合計</span><span></span><span class="cell-mono">$${total.toLocaleString()}</span></div></div>` : '<span class="detail-empty">—</span>'
+    }</div></div>`;
+  }
+
   const titleField = cfg.titleField || (cfg.fields.find(f=>f.required)||{}).key || cfg.fields[0].key;
   openModalHTML(`
     <div class="modal-head">
@@ -783,7 +1012,7 @@ function openDetail(key, id){
       <button class="modal-close" onclick="app.closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="detail-list">${rowsHTML}</div>
+      <div class="detail-list">${rowsHTML}${repairItemsHTML}</div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-danger" onclick="app.confirmDelete('${key}','${id}')">刪除</button>
@@ -807,19 +1036,21 @@ function openEdit(key, id){
 function openFormModal(key, data, isCreate){
   const cfg = MODULES[key];
   const fieldsHTML = cfg.fields.map(f=>renderField(f, data)).join('');
+  const repairItemsHTML = key==='repairs' ? renderRepairItemsSection(data) : '';
   openModalHTML(`
     <div class="modal-head">
       <h3>${isCreate?'新增':'編輯'}${cfg.title}</h3>
       <button class="modal-close" onclick="app.closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="field-grid">${fieldsHTML}</div>
+      <div class="field-grid">${fieldsHTML}${repairItemsHTML}</div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="app.closeModal()">取消</button>
       <button class="btn btn-primary" onclick="app.saveForm('${key}','${data.id||''}')">${isCreate?'新增':'儲存變更'}</button>
     </div>
   `);
+  if(key==='repairs') updateRepairItemsCalc();
 }
 
 async function saveForm(key, id){
@@ -834,6 +1065,7 @@ async function saveForm(key, id){
   }
   const formData = collectFormData(cfg.fields);
   STATION_ID_FIELDS.forEach(fk=>{ if(fk in formData) formData[fk] = fmtStationId(formData[fk]); });
+  if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
   if(id){
     const idx = state[key].findIndex(r=>r.id===id);
     if(idx>-1) state[key][idx] = {...state[key][idx], ...formData};
@@ -1235,7 +1467,8 @@ function goTab(key){
 window.app = {
   goTab, openCreate, openEdit, openDetail, saveForm, confirmDelete, doDelete, closeModal,
   openImport, switchImportSheet, confirmImport,
-  openListManager, addListItem, removeListItem, saveListManager
+  openListManager, addListItem, removeListItem, saveListManager,
+  setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal
 };
 
 /* ============ Init ============ */
