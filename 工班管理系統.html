@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Iansui&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgenjs.bundle.js"></script>
 <!-- Firebase（團隊共用資料同步） -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
@@ -40,6 +41,7 @@
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
 body{
   background:var(--bg);
   color:var(--ink);
@@ -47,7 +49,10 @@ body{
   font-size:14px;
   line-height:1.55;
   -webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
 }
+.cell-plain{font-size:13px;color:var(--ink);}
 button{font-family:inherit;cursor:pointer;}
 input,select,textarea{font-family:inherit;font-size:14px;}
 ::selection{background:var(--accent-tint);}
@@ -254,6 +259,22 @@ tbody tr:hover{background:#F7F9FA;}
 .list-mgr-add{display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
 .list-mgr-add input{flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--bg);}
 
+/* ---------- Repair item catalog manager ---------- */
+.ric-rows{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;}
+.ric-row{display:grid;grid-template-columns:1.5fr .8fr .8fr auto;gap:8px;align-items:center;}
+.ric-row input, .ric-add input{border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--bg);width:100%;}
+.ric-add{display:grid;grid-template-columns:1.5fr .8fr .8fr auto;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);}
+@media (max-width:560px){.ric-row,.ric-add{grid-template-columns:1fr 1fr;}}
+
+/* ---------- Pie chart (維修品項統計) ---------- */
+.pie-panel{display:flex;gap:26px;padding:20px;align-items:center;flex-wrap:wrap;}
+.pie-chart{width:180px;height:180px;min-width:180px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--border);}
+.pie-legend{display:flex;flex-direction:column;gap:7px;flex:1;min-width:220px;}
+.pie-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+.pie-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.pie-legend-name{flex:1;font-weight:600;color:var(--ink);}
+.pie-legend-val{color:var(--ink-soft);font-family:var(--font-mono);font-size:11.5px;white-space:nowrap;}
+
 /* ---------- Toast ---------- */
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center;}
 .toast-item{
@@ -362,7 +383,7 @@ const SEED_VEHICLES = ['BXG-0680','AYD-5975'];
 const SEED_REPAIR_STATUSES = ['待修','維修中','已完修','轉尚恩','轉嘉油'];
 
 /* ============ Storage helpers (shared across team) ============ */
-const STORAGE_KEYS = { repairs:'repairs', tanks:'tanks', installs:'installs', trucks:'trucks', engineers:'engineers', vehicles:'vehicles', repairStatuses:'repairStatuses' };
+const STORAGE_KEYS = { repairs:'repairs', tanks:'tanks', installs:'installs', trucks:'trucks', engineers:'engineers', vehicles:'vehicles', repairStatuses:'repairStatuses', repairItemCatalog:'repairItemCatalog' };
 
 function setSyncing(on){
   const dot = document.getElementById('syncDot');
@@ -419,14 +440,16 @@ const state = {
   engineers: [],
   vehicles: [],
   repairStatuses: [],
+  repairItemCatalog: [],
   search: { repairs:'', tanks:'', installs:'', trucks:'' },
   filter: { repairs:'', tanks:'' },
   repairsView: 'list',
-  repairsStatsRange: { from:'', to:'' }
+  repairsStatsRange: { from:'', to:'' },
+  repairsListRange: { from:'', to:'' }
 };
 
 async function loadAll(){
-  const [repairs, tanks, installs, trucks, engineers, vehicles, repairStatuses] = await Promise.all([
+  const [repairs, tanks, installs, trucks, engineers, vehicles, repairStatuses, repairItemCatalog] = await Promise.all([
     storeGet(STORAGE_KEYS.repairs),
     storeGet(STORAGE_KEYS.tanks),
     storeGet(STORAGE_KEYS.installs),
@@ -434,6 +457,7 @@ async function loadAll(){
     storeGet(STORAGE_KEYS.engineers),
     storeGet(STORAGE_KEYS.vehicles),
     storeGet(STORAGE_KEYS.repairStatuses),
+    storeGet(STORAGE_KEYS.repairItemCatalog),
   ]);
   let needsSeed = false;
   state.repairs = repairs || (needsSeed=true, SEED_REPAIRS.map(withId));
@@ -443,6 +467,7 @@ async function loadAll(){
   state.engineers = engineers || (needsSeed=true, SEED_ENGINEERS.slice());
   state.vehicles = vehicles || (needsSeed=true, SEED_VEHICLES.slice());
   state.repairStatuses = repairStatuses || (needsSeed=true, SEED_REPAIR_STATUSES.slice());
+  state.repairItemCatalog = repairItemCatalog || (needsSeed=true, DEFAULT_REPAIR_ITEM_CATALOG.map(it=>({...it})));
   if(needsSeed){
     await Promise.all([
       storeSet(STORAGE_KEYS.repairs, state.repairs),
@@ -452,6 +477,7 @@ async function loadAll(){
       storeSet(STORAGE_KEYS.engineers, state.engineers),
       storeSet(STORAGE_KEYS.vehicles, state.vehicles),
       storeSet(STORAGE_KEYS.repairStatuses, state.repairStatuses),
+      storeSet(STORAGE_KEYS.repairItemCatalog, state.repairItemCatalog),
     ]);
   }
 }
@@ -529,7 +555,8 @@ function openModalHTML(html){
   });
 }
 /* ============ Repair item price catalog (for 維修工單 item checklist) ============ */
-const REPAIR_ITEM_CATALOG = [
+/* This is only the seed/default list — the live, editable list lives in state.repairItemCatalog */
+const DEFAULT_REPAIR_ITEM_CATALOG = [
   {name:'透明包紗管', unit:'米', price:50},
   {name:'黑色高壓管', unit:'米', price:190},
   {name:'桶槽清潔（含濾心更換）', unit:null, price:3000},
@@ -588,7 +615,7 @@ const MODULES = {
     columns: [
       {key:'維修狀況', label:'狀況', render:r=>badge(r['維修狀況'])},
       {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
-      {key:'狀況描述', label:'狀況描述', render:r=>`<div>${esc(truncate(r['狀況描述']||'',40))}</div>`},
+      {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
       {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
       {key:'維修人員1名稱', label:'維修人員', render:r=>esc(r['維修人員1名稱']||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
@@ -612,7 +639,7 @@ const MODULES = {
       {key:'station_id', label:'站點序號', render:r=>`<span class="cell-mono cell-main">${esc(fmtStationId(r.station_id)||'—')}</span>`},
       {key:'station', label:'站點名稱', render:r=>`<div class="cell-main">${esc(r.station||'—')}</div>`},
       {key:'status', label:'清洗狀態', render:r=>badge(r.status,'未處理')},
-      {key:'address', label:'地址與聯絡', render:r=>esc(truncate(r.address||'',44))},
+      {key:'address', label:'地址與聯絡', render:r=>`<span class="cell-plain">${esc(truncate(r.address||'',44))}</span>`},
     ]
   },
 
@@ -673,6 +700,15 @@ const MODULES = {
 };
 /* ============ Generic list-module rendering (repairs / tanks / installs / trucks) ============ */
 
+/* normalize '2026/07/06' or '2026-07-06' etc into a comparable 'YYYY-MM-DD' string */
+function normDate(d){
+  if(!d) return '';
+  return String(d).slice(0,10).replace(/\//g,'-');
+}
+function getRepairDate(r){
+  return normDate(r['結案日期'] || r['報修日期'] || r['出庫日期'] || '');
+}
+
 function renderRepairsViewToggle(){
   return `<div style="display:flex;gap:8px;margin:28px 0 12px;">
     <button class="btn btn-sm ${state.repairsView!=='stats'?'btn-primary':'btn-ghost'}" onclick="app.setRepairsView('list')">📋 工單列表</button>
@@ -689,10 +725,8 @@ function clearStatsRange(){
   renderContent();
 }
 
-function renderRepairStatsView(){
-  const cfg = MODULES.repairs;
+function computeRepairStats(){
   const range = state.repairsStatsRange;
-  const getRepairDate = r => r['結案日期'] || r['報修日期'] || r['出庫日期'] || '';
   const filtered = state.repairs.filter(r=>{
     if(!range.from && !range.to) return true;
     const d = getRepairDate(r);
@@ -712,11 +746,49 @@ function renderRepairStatsView(){
   });
   const rows = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count);
   const totalAmount = rows.reduce((s,[,v])=>s+v.amountSum,0);
+  return { filtered, rows, totalAmount };
+}
+
+const PIE_COLORS = ['#1D4E5F','#E2A33D','#3F8F5F','#C1473A','#7148A6','#2E8B9A','#D98F2B','#5B6E7C','#8B9BA7','#9B5DE5','#00A896','#B7C1C8'];
+
+/* rows: sorted [name, {count,qtySum,amountSum,unit}][] entries; builds a CSS conic-gradient pie + legend, capped at top 10 + "其他" */
+function renderRepairItemsPie(rows, totalAmount){
+  if(!rows.length || totalAmount<=0) return '';
+  const top = rows.slice(0,10);
+  const rest = rows.slice(10);
+  const restAmt = rest.reduce((s,[,v])=>s+v.amountSum,0);
+  const slices = top.map(([name,v],i)=>({name, value:v.amountSum, color:PIE_COLORS[i%PIE_COLORS.length]}));
+  if(restAmt>0) slices.push({name:'其他', value:restAmt, color:'#B7C1C8'});
+
+  let acc = 0;
+  const gradientParts = slices.map(s=>{
+    const pct = totalAmount ? (s.value/totalAmount*100) : 0;
+    const start = acc;
+    acc += pct;
+    return `${s.color} ${start.toFixed(2)}% ${acc.toFixed(2)}%`;
+  }).join(', ');
+
+  const legendHTML = slices.map(s=>{
+    const pct = totalAmount ? (s.value/totalAmount*100) : 0;
+    return `<div class="pie-legend-row"><span class="pie-dot" style="background:${s.color}"></span><span class="pie-legend-name">${esc(s.name)}</span><span class="pie-legend-val">$${s.value.toLocaleString()}（${pct.toFixed(1)}%）</span></div>`;
+  }).join('');
+
+  return `
+    <div class="pie-chart" style="background:conic-gradient(${gradientParts});"></div>
+    <div class="pie-legend">${legendHTML}</div>
+  `;
+}
+
+function renderRepairStatsView(){
+  const cfg = MODULES.repairs;
+  const range = state.repairsStatsRange;
+  const { filtered, rows, totalAmount } = computeRepairStats();
 
   return `
     ${renderRepairsViewToggle()}
     <div class="section-head">
       <h2>${cfg.icon} 維修品項統計</h2>
+      <button class="btn btn-ghost" onclick="app.openRepairItemCatalogManager()">🧰 管理維修項目/金額</button>
     </div>
     <div class="panel">
       <div class="panel-toolbar" style="gap:14px;">
@@ -724,7 +796,19 @@ function renderRepairStatsView(){
         <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">結束日期 <input type="date" id="stats_to" value="${esc(range.to)}"></label>
         <button class="btn btn-ghost btn-sm" onclick="app.clearStatsRange()">清除區間</button>
         <span class="hint" style="color:var(--ink-faint);font-size:12px;">${(range.from||range.to)?`區間內共 ${filtered.length} 筆工單、`:'全部工單、'}使用 ${rows.length} 種品項</span>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary btn-sm" onclick="app.exportStatsPPT()">📤 匯出 PPT</button>
       </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-title-row"><h3>🥧 維修品項金額佔比</h3></div>
+      <div class="pie-panel">
+        ${rows.length && totalAmount>0 ? renderRepairItemsPie(rows, totalAmount) : `<div class="empty-state" style="padding:12px 0;"><span class="emoji">🥧</span>此區間內尚無可繪製圖表的金額資料</div>`}
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
       <div class="table-wrap">
         <table>
           <thead><tr><th>維修品項</th><th>使用次數</th><th>累計數量</th><th>累計金額</th></tr></thead>
@@ -744,17 +828,97 @@ function renderRepairStatsView(){
   `;
 }
 
+async function exportStatsPPT(){
+  if(typeof PptxGenJS === 'undefined'){
+    showToast('PPT 匯出元件載入失敗，請確認網路連線後重新整理再試', 'err');
+    return;
+  }
+  const { filtered, rows, totalAmount } = computeRepairStats();
+  if(!rows.length){
+    showToast('此區間內沒有可匯出的維修品項資料', 'err');
+    return;
+  }
+  const range = state.repairsStatsRange;
+  const rangeLabel = (range.from||range.to) ? `統計區間：${range.from||'—'} ～ ${range.to||'—'}` : '統計區間：全部';
+
+  const pptx = new PptxGenJS();
+  pptx.defineLayout({ name:'WIDE', width:13.33, height:7.5 });
+  pptx.layout = 'WIDE';
+  const slide = pptx.addSlide();
+  slide.background = { color:'FFFFFF' };
+  slide.addText('維修品項統計', { x:0.5, y:0.35, w:8, h:0.6, fontSize:26, bold:true, color:'0F323E' });
+  slide.addText(`${rangeLabel}　｜　共 ${filtered.length} 筆工單　｜　${rows.length} 種品項　｜　總金額 $${totalAmount.toLocaleString()}`,
+    { x:0.5, y:0.95, w:12.3, h:0.4, fontSize:13, color:'5B6E7C' });
+
+  const top = rows.slice(0,10);
+  const rest = rows.slice(10);
+  const restAmt = rest.reduce((s,[,v])=>s+v.amountSum,0);
+  const chartLabels = top.map(([name])=>name).concat(restAmt>0 ? ['其他'] : []);
+  const chartValues = top.map(([,v])=>v.amountSum).concat(restAmt>0 ? [restAmt] : []);
+  const pieColorsHex = PIE_COLORS.map(c=>c.replace('#',''));
+
+  if(totalAmount>0){
+    slide.addChart(pptx.ChartType.pie, [{ name:'金額佔比', labels: chartLabels, values: chartValues }], {
+      x:0.5, y:1.5, w:6.2, h:5.3,
+      showLegend:true, legendPos:'r', legendFontSize:11,
+      showValue:false, showPercent:true, dataLabelFontSize:10,
+      chartColors: pieColorsHex
+    });
+  }
+
+  const tableRows = [[
+    { text:'維修品項', options:{ bold:true, fill:{ color:'E4EAEC' } } },
+    { text:'使用次數', options:{ bold:true, fill:{ color:'E4EAEC' } } },
+    { text:'累計數量', options:{ bold:true, fill:{ color:'E4EAEC' } } },
+    { text:'累計金額', options:{ bold:true, fill:{ color:'E4EAEC' } } }
+  ]];
+  rows.forEach(([name,v])=>{
+    tableRows.push([ name, String(v.count), `${v.qtySum}${v.unit||''}`, `$${v.amountSum.toLocaleString()}` ]);
+  });
+  tableRows.push([
+    { text:'總計', options:{ bold:true } }, '—', '—',
+    { text:`$${totalAmount.toLocaleString()}`, options:{ bold:true } }
+  ]);
+
+  slide.addTable(tableRows, {
+    x: totalAmount>0 ? 7.0 : 0.5, y:1.5, w: totalAmount>0 ? 5.8 : 12.3, h:5.3,
+    fontSize:10, color:'152634', border:{ type:'solid', color:'DCE3E6', pt:0.5 },
+    autoPage:true, autoPageRepeatHeader:true
+  });
+
+  try{
+    await pptx.writeFile({ fileName:`維修品項統計_${todayISO()}.pptx` });
+    showToast('已匯出 PPT');
+  }catch(e){
+    console.error('PPT export failed', e);
+    showToast('PPT 匯出失敗，請重試', 'err');
+  }
+}
+
 function renderModuleTab(key){
   const cfg = MODULES[key];
   if(key==='repairs' && state.repairsView==='stats'){
     return renderRepairStatsView();
   }
-  const rows = state[key].filter(r => matchesSearch(r, state.search[key]))
+  let rows = state[key].filter(r => matchesSearch(r, state.search[key]))
     .filter(r => {
       if(!cfg.statusField) return true;
       if(!state.filter[key]) return true;
       return (r[cfg.statusField]||'') === state.filter[key] || (!r[cfg.statusField] && state.filter[key]==='__empty__');
     });
+
+  if(key==='repairs'){
+    const lr = state.repairsListRange;
+    if(lr.from || lr.to){
+      rows = rows.filter(r=>{
+        const d = getRepairDate(r);
+        if(!d) return false;
+        if(lr.from && d < lr.from) return false;
+        if(lr.to && d > lr.to) return false;
+        return true;
+      });
+    }
+  }
 
   const statusOpts = cfg.dynamicStatusSource ? (state[cfg.dynamicStatusSource]||[]) : cfg.statusOptions;
   const statusFilterHTML = statusOpts ? `
@@ -762,6 +926,12 @@ function renderModuleTab(key){
       <option value="">全部狀態</option>
       ${statusOpts.map(o=>`<option value="${esc(o)}" ${state.filter[key]===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select>` : '';
+
+  const repairsRangeHTML = key==='repairs' ? `
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">起 <input type="date" id="list_range_from" value="${esc(state.repairsListRange.from)}"></label>
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">迄 <input type="date" id="list_range_to" value="${esc(state.repairsListRange.to)}"></label>
+    ${(state.repairsListRange.from||state.repairsListRange.to) ? `<button class="btn btn-ghost btn-sm" onclick="app.clearRepairsListRange()">清除區間</button>` : ''}
+  ` : '';
 
   const theadHTML = `<tr>${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
   const toggleHTML = key==='repairs' ? renderRepairsViewToggle() : '';
@@ -788,6 +958,7 @@ function renderModuleTab(key){
         ` : ''}
         ${key==='repairs' ? `
           <button class="btn btn-ghost" onclick="app.openListManager('repairStatuses')">⚙️ 管理維修狀況</button>
+          <button class="btn btn-ghost" onclick="app.openRepairItemCatalogManager()">🧰 管理維修項目/金額</button>
         ` : ''}
         <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
         <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':'工單'))}</button>
@@ -797,6 +968,7 @@ function renderModuleTab(key){
       <div class="panel-toolbar">
         <input class="search-input" id="search_${key}" placeholder="${esc(cfg.searchPlaceholder)}" value="${esc(state.search[key])}">
         ${statusFilterHTML}
+        ${repairsRangeHTML}
         <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆</span>
       </div>
       <div class="table-wrap">
@@ -829,13 +1001,25 @@ function wireModuleTabEvents(key){
   if(filterEl){
     filterEl.addEventListener('change', (e)=>{ state.filter[key]=e.target.value; renderContent(); });
   }
+  if(key==='repairs'){
+    const rFromEl = document.getElementById('list_range_from');
+    const rToEl = document.getElementById('list_range_to');
+    if(rFromEl) rFromEl.addEventListener('change', e=>{ state.repairsListRange.from = e.target.value; renderContent(); });
+    if(rToEl) rToEl.addEventListener('change', e=>{ state.repairsListRange.to = e.target.value; renderContent(); });
+  }
+}
+
+function clearRepairsListRange(){
+  state.repairsListRange = { from:'', to:'' };
+  renderContent();
 }
 
 /* ============ Repair items checklist (維修工單 專用) ============ */
 function renderRepairItemsSection(data){
+  const catalog = state.repairItemCatalog || [];
   const existing = Array.isArray(data['維修項目']) ? data['維修項目'] : [];
   const otherItem = existing.find(x=>x.isOther);
-  const rowsHTML = REPAIR_ITEM_CATALOG.map((it,idx)=>{
+  const rowsHTML = catalog.map((it,idx)=>{
     const match = existing.find(x=>x.name===it.name && !x.isOther);
     const checked = !!match;
     const qtyVal = match ? match.qty : (it.unit ? '' : 1);
@@ -875,7 +1059,7 @@ function renderRepairItemsSection(data){
 
 function updateRepairItemsCalc(){
   let total = 0;
-  REPAIR_ITEM_CATALOG.forEach((it,idx)=>{
+  (state.repairItemCatalog||[]).forEach((it,idx)=>{
     const chk = document.getElementById('ri_chk_'+idx);
     const qtyEl = document.getElementById('ri_qty_'+idx);
     const subEl = document.getElementById('ri_sub_'+idx);
@@ -911,7 +1095,7 @@ function applyRepairItemsTotal(){
 
 function collectRepairItems(){
   const items = [];
-  REPAIR_ITEM_CATALOG.forEach((it,idx)=>{
+  (state.repairItemCatalog||[]).forEach((it,idx)=>{
     const chk = document.getElementById('ri_chk_'+idx);
     if(chk && chk.checked){
       const qtyEl = document.getElementById('ri_qty_'+idx);
@@ -1429,6 +1613,87 @@ async function saveListManager(kind){
   showToast('已儲存變更');
 }
 
+/* ============ Repair item catalog manager (維修項目／金額 維護) ============ */
+function renderRepairItemCatalogBody(){
+  const items = state.repairItemCatalog || [];
+  const rowsHTML = items.length ? items.map((it,i)=>`
+    <div class="ric-row">
+      <input type="text" value="${esc(it.name)}" data-ric-name="${i}" placeholder="項目名稱">
+      <input type="text" value="${esc(it.unit||'')}" data-ric-unit="${i}" placeholder="單位（選填）">
+      <input type="number" min="0" value="${esc(it.price)}" data-ric-price="${i}" placeholder="單價">
+      <button class="btn btn-danger btn-sm btn-icon-only" title="刪除" onclick="app.removeRepairItemCatalog(${i})">✕</button>
+    </div>`).join('') : `<div class="empty-state" style="padding:20px;"><span class="emoji">🧰</span>尚無維修項目，請在下方新增。</div>`;
+
+  return `
+    <div class="modal-head">
+      <h3>🧰 管理維修項目與金額</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="ric-rows" id="ricRows">${rowsHTML}</div>
+      <div class="ric-add">
+        <input type="text" id="ricNewName" placeholder="項目名稱，例如 濾心">
+        <input type="text" id="ricNewUnit" placeholder="單位（選填）">
+        <input type="number" min="0" id="ricNewPrice" placeholder="單價">
+        <button class="btn btn-primary btn-sm" onclick="app.addRepairItemCatalog()">＋ 新增</button>
+      </div>
+      <p style="margin:12px 0 0;font-size:12px;color:var(--ink-faint);">修改名稱／單位／單價後請按「儲存變更」。異動只會套用到之後新增或編輯的工單，已建立的工單會保留當時記錄的金額，不會被回溯更動。</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
+      <button class="btn btn-primary" onclick="app.saveRepairItemCatalog()">儲存變更</button>
+    </div>`;
+}
+
+function openRepairItemCatalogManager(){
+  openModalHTML(renderRepairItemCatalogBody());
+}
+
+function refreshRepairItemCatalogManager(){
+  const root = document.getElementById('modalRoot');
+  if(!root || !root.querySelector('.modal')) return;
+  root.querySelector('.modal').innerHTML = renderRepairItemCatalogBody();
+}
+
+function addRepairItemCatalog(){
+  const nameEl = document.getElementById('ricNewName');
+  const unitEl = document.getElementById('ricNewUnit');
+  const priceEl = document.getElementById('ricNewPrice');
+  const name = nameEl ? nameEl.value.trim() : '';
+  if(!name){ showToast('請輸入項目名稱', 'err'); return; }
+  const unit = unitEl ? unitEl.value.trim() : '';
+  const price = parseFloat(priceEl ? priceEl.value : '') || 0;
+  if(!state.repairItemCatalog) state.repairItemCatalog = [];
+  state.repairItemCatalog.push({ name, unit: unit || null, price });
+  refreshRepairItemCatalogManager();
+}
+
+function removeRepairItemCatalog(idx){
+  state.repairItemCatalog.splice(idx,1);
+  refreshRepairItemCatalogManager();
+}
+
+async function saveRepairItemCatalog(){
+  const root = document.getElementById('modalRoot');
+  root.querySelectorAll('[data-ric-name]').forEach(el=>{
+    const idx = +el.dataset.ricName;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].name = el.value.trim();
+  });
+  root.querySelectorAll('[data-ric-unit]').forEach(el=>{
+    const idx = +el.dataset.ricUnit;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].unit = el.value.trim() || null;
+  });
+  root.querySelectorAll('[data-ric-price]').forEach(el=>{
+    const idx = +el.dataset.ricPrice;
+    if(state.repairItemCatalog[idx]) state.repairItemCatalog[idx].price = parseFloat(el.value) || 0;
+  });
+  state.repairItemCatalog = state.repairItemCatalog.filter(it=>it.name);
+  closeModal();
+  renderContent();
+  await persist('repairItemCatalog');
+  showToast('已儲存維修項目設定');
+}
+
 
 const TAB_LIST = [
   {key:'overview', label:'總覽', icon:'📊'},
@@ -1468,7 +1733,9 @@ window.app = {
   goTab, openCreate, openEdit, openDetail, saveForm, confirmDelete, doDelete, closeModal,
   openImport, switchImportSheet, confirmImport,
   openListManager, addListItem, removeListItem, saveListManager,
-  setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal
+  setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal,
+  clearRepairsListRange, exportStatsPPT,
+  openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog
 };
 
 /* ============ Init ============ */
