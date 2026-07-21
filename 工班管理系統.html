@@ -1305,65 +1305,235 @@ function renderRepairStatsView(){
   `;
 }
 
+/* ============ PPT 匯出：藍天綠地主題（保固／收款統計 + 更換部件統計 + 桶槽清洗進度） ============ */
 async function exportStatsPPT(){
   if(typeof PptxGenJS === 'undefined'){
     showToast('PPT 匯出元件載入失敗，請確認網路連線後重新整理再試', 'err');
     return;
   }
   const { filtered, rows } = computeRepairStats();
-  if(!rows.length){
-    showToast('此區間內沒有可匯出的維修品項資料', 'err');
+  const wstats = computeWarrantyBreakdownStats();
+  const tstats = computeTankStats();
+  const tankNA = (tstats.counts['未處理']||0) + (tstats.unset||0);
+  const tankDone = tstats.counts['已清洗']||0;
+  const tankIssued = tstats.counts['已出單']||0;
+  const tankTotal = tstats.total||0;
+
+  if(!wstats.total && !tankTotal && !rows.length){
+    showToast('目前沒有可匯出的統計資料', 'err');
     return;
   }
-  const totalCount = rows.reduce((s,[,v])=>s+v.count,0);
+
   const range = state.repairsStatsRange;
   const rangeLabel = (range.from||range.to) ? `統計區間：${range.from||'—'} ～ ${range.to||'—'}` : '統計區間：全部';
+  const totalCount = rows.reduce((s,[,v])=>s+v.count,0);
+
+  // ---------- 藍天綠地 配色 ----------
+  const SKY_DEEP='0E3A5C', SKY='1C7293', SKY_LIGHT='CDE7F0';
+  const GRASS='3F8F5F', GRASS_SOFT='8FC79A', GOLD='E0A63E';
+  const INK='1E2B32', INK_SOFT='5A6B72', WHITE='FFFFFF';
+  const CARD_BG='F4FAF7', ORANGE_TXT='C15B2A';
+  const FONT_HEAD='Cambria', FONT_BODY='Calibri';
 
   const pptx = new PptxGenJS();
   pptx.defineLayout({ name:'WIDE', width:13.33, height:7.5 });
   pptx.layout = 'WIDE';
-  const slide = pptx.addSlide();
-  slide.background = { color:'FFFFFF' };
-  slide.addText('維修品項統計', { x:0.5, y:0.35, w:8, h:0.6, fontSize:26, bold:true, color:'0F323E' });
-  slide.addText(`${rangeLabel}　｜　共 ${filtered.length} 筆工單　｜　${rows.length} 種品項　｜　總使用次數 ${totalCount}`,
-    { x:0.5, y:0.95, w:12.3, h:0.4, fontSize:13, color:'5B6E7C' });
 
-  const top = rows.slice(0,10);
-  const rest = rows.slice(10);
-  const restCount = rest.reduce((s,[,v])=>s+v.count,0);
-  const chartLabels = top.map(([name])=>name).concat(restCount>0 ? ['其他'] : []);
-  const chartValues = top.map(([,v])=>v.count).concat(restCount>0 ? [restCount] : []);
-  const pieColorsHex = PIE_COLORS.map(c=>c.replace('#',''));
+  const addHillBg = (slide)=>{
+    slide.background = { color: SKY_DEEP };
+    slide.addShape(pptx.ShapeType.ellipse, { x:-1.8, y:5.9, w:8.5, h:3.2, fill:{ color:GRASS } });
+    slide.addShape(pptx.ShapeType.ellipse, { x:4.2, y:6.3, w:8.0, h:3.0, fill:{ color:GRASS_SOFT, transparency:15 } });
+    slide.addShape(pptx.ShapeType.ellipse, { x:9.6, y:0.6, w:1.3, h:1.3, fill:{ color:GOLD, transparency:15 } });
+  };
 
-  if(totalCount>0){
-    slide.addChart(pptx.ChartType.pie, [{ name:'使用次數佔比', labels: chartLabels, values: chartValues }], {
-      x:0.5, y:1.5, w:6.2, h:5.3,
-      showLegend:true, legendPos:'r', legendFontSize:11,
-      showValue:false, showPercent:true, dataLabelFontSize:10,
-      chartColors: pieColorsHex
+  // ===== Slide 1：標題頁 =====
+  {
+    const s = pptx.addSlide();
+    addHillBg(s);
+    s.addShape(pptx.ShapeType.rect, { x:0, y:0, w:13.33, h:4.6, fill:{ color:SKY, transparency:55 } });
+    s.addText('工班服務管理月報', { x:0.9, y:2.5, w:11.5, h:1.1, fontFace:FONT_HEAD, fontSize:40, bold:true, color:WHITE });
+    s.addText('保固／收款統計　×　桶槽清洗進度追蹤', { x:0.9, y:3.5, w:11.5, h:0.6, fontFace:FONT_BODY, fontSize:20, color:SKY_LIGHT });
+    s.addText(rangeLabel, { x:0.9, y:6.85, w:8, h:0.4, fontFace:FONT_BODY, fontSize:13, color:SKY_LIGHT });
+  }
+
+  // ===== Slide 2：保固／收款統計（完整表格） =====
+  {
+    const s = pptx.addSlide();
+    s.background = { color:WHITE };
+    s.addText('保固／收款統計', { x:0.6, y:0.35, w:8, h:0.6, fontFace:FONT_HEAD, fontSize:28, bold:true, color:SKY_DEEP });
+    s.addText('品項一經更換即自動從當次維修日期起算 1 年部件保固；同一站點若在 1 年內再次維修同一品項，即使系統整體已過保固，該品項仍會自動判定為「部件保固內」。',
+      { x:0.6, y:0.95, w:12.1, h:0.5, fontFace:FONT_BODY, fontSize:10.5, color:INK_SOFT });
+
+    const pct = (v,t)=> t>0 ? Math.round(v/t*100)+'%' : '0%';
+    const money = v => (v||0).toLocaleString();
+    const groups = [ wstats.sysIn, wstats.sysOutPartOut, wstats.sysOutPartIn ];
+
+    const headFill = { color:SKY };
+    const subFillIn = { color:'D7ECD9' };
+    const subFillOut = { color:SKY_LIGHT };
+    const hdrOpts = { fontFace:FONT_BODY, fontSize:11, bold:true, color:WHITE, align:'center', valign:'middle' };
+    const subOptsIn = { fontFace:FONT_BODY, fontSize:10.5, bold:true, color:INK, align:'center', valign:'middle', fill:subFillIn };
+    const subOptsOut = { fontFace:FONT_BODY, fontSize:10.5, bold:true, color:INK, align:'center', valign:'middle', fill:subFillOut };
+    const colOpts = { fontFace:FONT_BODY, fontSize:9.5, color:INK_SOFT, align:'center', valign:'middle', fill:{ color:'F2F6F4' } };
+    const rowLabelOpts = (bold)=>({ fontFace:FONT_BODY, fontSize:11, bold:!!bold, color:INK, align:'left', valign:'middle' });
+    const cellOpts = (bold,color)=>({ fontFace:FONT_BODY, fontSize:11, bold:!!bold, color:color||INK, align:'center', valign:'middle' });
+
+    const tableRows = [];
+    tableRows.push([
+      { text:'', options:{ fill:headFill } },
+      { text:'系統保固內案件', options:{ colspan:2, ...hdrOpts, fill:headFill } },
+      { text:'系統保固外案件', options:{ colspan:4, ...hdrOpts, fill:headFill } },
+    ]);
+    tableRows.push([
+      { text:'項目', options:{ fontFace:FONT_BODY, fontSize:11, bold:true, color:WHITE, align:'left', valign:'middle', fill:headFill } },
+      { text:'部件保固內', options:{ colspan:2, ...subOptsIn } },
+      { text:'部件保固外', options:{ colspan:2, ...subOptsOut } },
+      { text:'部件保固內', options:{ colspan:2, ...subOptsIn } },
+    ]);
+    tableRows.push([
+      { text:'', options:{ fill:{ color:'EAF1EE' } } },
+      { text:'件數', options:colOpts }, { text:'比例', options:colOpts },
+      { text:'件數', options:colOpts }, { text:'比例', options:colOpts },
+      { text:'件數', options:colOpts }, { text:'比例', options:colOpts },
+    ]);
+    tableRows.push([
+      { text:'總件數', options:{ ...rowLabelOpts(true), fill:{ color:'E3ECE7' } } },
+      { text:String(wstats.total), options:{ colspan:6, ...cellOpts(true), fill:{ color:'E3ECE7' }, fontSize:13 } },
+    ]);
+
+    const dataRowDefs = [
+      { label:'收費件數／比例', key:'paidCount', total:'count' },
+      { label:'未收件數／比例', key:'unpaidCount', total:'count' },
+      { label:'總案件數／比例', key:'count', total:'count', bold:true },
+      { label:'收費金額／比例', key:'paidAmt', total:'totalAmt' },
+      { label:'未收金額／比例', key:'unpaidAmt', total:'totalAmt', color:ORANGE_TXT },
+      { label:'應收金額／比例', key:'totalAmt', total:'totalAmt', bold:true },
+    ];
+    dataRowDefs.forEach((def, i)=>{
+      const zebra = i%2===1 ? 'F7FAF8' : 'FFFFFF';
+      const isAmt = def.key.toLowerCase().includes('amt');
+      const row = [{ text:def.label, options:{ ...rowLabelOpts(def.bold), fill:{ color:zebra } } }];
+      groups.forEach(g=>{
+        const v = g[def.key];
+        const t = g[def.total];
+        const text = isAmt ? money(v) : String(v);
+        row.push({ text, options:{ ...cellOpts(def.bold, def.color), fill:{ color:zebra } } });
+        row.push({ text: pct(v,t), options:{ ...cellOpts(def.bold, def.color), fill:{ color:zebra } } });
+      });
+      tableRows.push(row);
+    });
+
+    s.addTable(tableRows, {
+      x:0.6, y:1.55, w:12.1, colW:[2.6,1.58,1.58,1.58,1.58,1.58,1.58], rowH:0.42,
+      border:{ type:'solid', color:'DCE6E1', pt:0.75 }, autoPage:false
+    });
+    s.addText('資料來源：工班管理系統 — 維修品項統計頁', { x:0.6, y:7.05, w:8, h:0.3, fontFace:FONT_BODY, fontSize:9, italic:true, color:INK_SOFT });
+  }
+
+  // ===== Slide 3：更換部件統計（品項使用次數） =====
+  if(rows.length){
+    const s = pptx.addSlide();
+    s.background = { color:WHITE };
+    s.addText('更換部件統計', { x:0.6, y:0.35, w:8, h:0.6, fontFace:FONT_HEAD, fontSize:28, bold:true, color:SKY_DEEP });
+    s.addText(`${rangeLabel}　｜　共 ${filtered.length} 筆工單　｜　${rows.length} 種品項　｜　總使用次數 ${totalCount}`,
+      { x:0.6, y:0.95, w:12.1, h:0.4, fontFace:FONT_BODY, fontSize:12, color:INK_SOFT });
+
+    const top = rows.slice(0,10);
+    const rest = rows.slice(10);
+    const restCount = rest.reduce((s2,[,v])=>s2+v.count,0);
+    const chartLabels = top.map(([name])=>name).concat(restCount>0 ? ['其他'] : []);
+    const chartValues = top.map(([,v])=>v.count).concat(restCount>0 ? [restCount] : []);
+    const themeColors = [SKY,GRASS,GOLD,'2E8B9A','7BAF8C','C1473A','8FC79A','5B6E7C','D98F2B','9AC2CE','B7C1C8','69A297'];
+
+    if(totalCount>0){
+      s.addChart(pptx.ChartType.pie, [{ name:'使用次數佔比', labels:chartLabels, values:chartValues }], {
+        x:0.5, y:1.55, w:6.2, h:5.3,
+        showLegend:true, legendPos:'r', legendFontSize:11,
+        showValue:false, showPercent:true, dataLabelFontSize:10, dataLabelColor:WHITE,
+        chartColors: themeColors
+      });
+    }
+
+    const tableRows2 = [[
+      { text:'維修品項', options:{ bold:true, color:WHITE, fill:{ color:SKY } } },
+      { text:'使用次數', options:{ bold:true, color:WHITE, fill:{ color:SKY } } },
+      { text:'累計數量', options:{ bold:true, color:WHITE, fill:{ color:SKY } } }
+    ]];
+    rows.forEach(([name,v])=>{
+      tableRows2.push([ name, String(v.count), `${v.qtySum}${v.unit||''}` ]);
+    });
+    tableRows2.push([{ text:'總計', options:{ bold:true, fill:{ color:CARD_BG } } }, { text:String(totalCount), options:{ bold:true, fill:{ color:CARD_BG } } }, { text:'—', options:{ fill:{ color:CARD_BG } } } ]);
+
+    s.addTable(tableRows2, {
+      x: totalCount>0 ? 7.0 : 0.5, y:1.55, w: totalCount>0 ? 5.8 : 12.3, h:5.3,
+      fontFace:FONT_BODY, fontSize:10, color:INK, border:{ type:'solid', color:'DCE6E1', pt:0.5 },
+      autoPage:true, autoPageRepeatHeader:true
     });
   }
 
-  const tableRows = [[
-    { text:'維修品項', options:{ bold:true, fill:{ color:'E4EAEC' } } },
-    { text:'使用次數', options:{ bold:true, fill:{ color:'E4EAEC' } } },
-    { text:'累計數量', options:{ bold:true, fill:{ color:'E4EAEC' } } }
-  ]];
-  rows.forEach(([name,v])=>{
-    tableRows.push([ name, String(v.count), `${v.qtySum}${v.unit||''}` ]);
-  });
-  tableRows.push([
-    { text:'總計', options:{ bold:true } }, String(totalCount), '—'
-  ]);
+  // ===== Slide 4：桶槽清洗進度 =====
+  {
+    const s = pptx.addSlide();
+    s.background = { color:WHITE };
+    s.addText('桶槽清洗進度', { x:0.6, y:0.35, w:8, h:0.6, fontFace:FONT_HEAD, fontSize:28, bold:true, color:SKY_DEEP });
+    s.addText(`共 ${tankTotal} 個追蹤站點`, { x:0.6, y:0.95, w:8, h:0.4, fontFace:FONT_BODY, fontSize:12.5, color:INK_SOFT });
 
-  slide.addTable(tableRows, {
-    x: totalCount>0 ? 7.0 : 0.5, y:1.5, w: totalCount>0 ? 5.8 : 12.3, h:5.3,
-    fontSize:10, color:'152634', border:{ type:'solid', color:'DCE3E6', pt:0.5 },
-    autoPage:true, autoPageRepeatHeader:true
-  });
+    const pctOf = v => tankTotal>0 ? (v/tankTotal*100).toFixed(1)+'%' : '0.0%';
+    const cards = [
+      { name:'站點總數', value:String(tankTotal), sub:'全部追蹤站點', color:SKY },
+      { name:'已清洗', value:String(tankDone), sub:pctOf(tankDone), color:GRASS },
+      { name:'已出單', value:String(tankIssued), sub:pctOf(tankIssued), color:GOLD },
+      { name:'未處理', value:String(tankNA), sub:pctOf(tankNA), color:'C1473A' },
+    ];
+    const cardW=2.75, gap=0.22, startX=0.6, cardY=1.55, cardH=1.55;
+    cards.forEach((c,i)=>{
+      const x = startX + i*(cardW+gap);
+      s.addShape(pptx.ShapeType.roundRect, { x, y:cardY, w:cardW, h:cardH, rectRadius:0.08, fill:{ color:CARD_BG }, line:{ color:'E1ECE6', width:0.75 } });
+      s.addShape(pptx.ShapeType.rect, { x:x+0.18, y:cardY+0.18, w:0.16, h:0.16, fill:{ color:c.color } });
+      s.addText(c.name, { x:x+0.42, y:cardY+0.12, w:cardW-0.6, h:0.32, fontFace:FONT_BODY, fontSize:11.5, bold:true, color:INK, align:'left', margin:0 });
+      s.addText(c.value, { x:x+0.18, y:cardY+0.5, w:cardW-0.36, h:0.7, fontFace:FONT_HEAD, fontSize:34, bold:true, color:c.color, align:'left', margin:0 });
+      s.addText(c.sub, { x:x+0.18, y:cardY+1.18, w:cardW-0.36, h:0.3, fontFace:FONT_BODY, fontSize:10.5, color:INK_SOFT, align:'left', margin:0 });
+    });
+
+    s.addText('清洗狀態佔比', { x:0.6, y:3.5, w:6, h:0.4, fontFace:FONT_BODY, fontSize:14, bold:true, color:SKY_DEEP });
+    if(tankTotal>0){
+      s.addChart(pptx.ChartType.pie, [{ name:'清洗狀態', labels:['已清洗','已出單','未處理'], values:[tankDone, tankIssued, tankNA] }], {
+        x:0.5, y:3.85, w:5.6, h:3.35,
+        showLegend:true, legendPos:'r', legendFontSize:12, legendColor:INK,
+        showValue:false, showPercent:true, dataLabelFormatCode:'0%',
+        dataLabelColor:WHITE, dataLabelFontSize:13, dataLabelFontBold:true,
+        dataLabelPosition:'inEnd',
+        chartColors:[GRASS, GOLD, 'C1473A'], dataBorder:{ pt:1.5, color:WHITE }
+      });
+    }
+
+    s.addText('整體完成率', { x:6.6, y:3.5, w:6, h:0.4, fontFace:FONT_BODY, fontSize:14, bold:true, color:SKY_DEEP });
+    const barX=6.6, barY=4.35, barW=6.0, barH=0.55;
+    s.addShape(pptx.ShapeType.roundRect, { x:barX, y:barY, w:barW, h:barH, rectRadius:0.06, fill:{ color:'E7EEEA' }, line:{ type:'none' } });
+    const fillW = tankTotal>0 ? barW*(tankDone/tankTotal) : 0;
+    if(fillW>0) s.addShape(pptx.ShapeType.roundRect, { x:barX, y:barY, w:fillW, h:barH, rectRadius:0.06, fill:{ color:GRASS }, line:{ type:'none' } });
+    s.addText(pctOf(tankDone), { x:barX, y:barY-0.02, w:barW, h:barH, align:'center', valign:'middle', fontFace:FONT_BODY, fontSize:13, bold:true, color:INK, margin:0 });
+
+    s.addText(`已完成 ${tankDone}／${tankTotal} 站，尚餘 ${tankTotal-tankDone} 站待清洗（含 ${tankIssued} 站已出單施工中）`,
+      { x:6.6, y:5.15, w:6.0, h:0.6, fontFace:FONT_BODY, fontSize:11.5, color:INK_SOFT });
+
+    s.addShape(pptx.ShapeType.roundRect, { x:6.6, y:5.85, w:6.0, h:1.35, rectRadius:0.08, fill:{ color:CARD_BG }, line:{ color:'E1ECE6', width:0.75 } });
+    s.addText([
+      { text:'說明：', options:{ bold:true, color:SKY_DEEP, fontSize:11.5, breakLine:true } },
+      { text:'「未處理」表尚未安排清洗作業；「已出單」表已排定施工尚未完成；「已清洗」為完成結案站點。', options:{ color:INK_SOFT, fontSize:10.5 } },
+    ], { x:6.85, y:6.0, w:5.5, h:1.1, fontFace:FONT_BODY, valign:'top', margin:0 });
+  }
+
+  // ===== Slide 5：結尾頁 =====
+  {
+    const s = pptx.addSlide();
+    addHillBg(s);
+    s.addText('感謝檢閱', { x:0.9, y:2.9, w:10, h:1.0, fontFace:FONT_HEAD, fontSize:34, bold:true, color:WHITE });
+    s.addText('如需詳細工單資料，請至工班管理系統查詢', { x:0.9, y:3.75, w:10, h:0.5, fontFace:FONT_BODY, fontSize:14, color:SKY_LIGHT });
+  }
 
   try{
-    await pptx.writeFile({ fileName:`維修品項統計_${todayISO()}.pptx` });
+    await pptx.writeFile({ fileName:`工班服務管理月報_${todayISO()}.pptx` });
     showToast('已匯出 PPT');
   }catch(e){
     console.error('PPT export failed', e);
