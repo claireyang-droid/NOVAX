@@ -194,6 +194,7 @@ tbody tr:hover{background:#F7F9FA;}
 .cell-sub{color:var(--ink-faint);font-size:12px;margin-top:2px;}
 .cell-mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
 .cell-mono.cell-main{font-size:13px;color:var(--ink);}
+.cell-wrap{white-space:normal;word-break:break-word;overflow-wrap:anywhere;max-width:200px;display:inline-block;}
 .row-actions{display:flex;gap:6px;white-space:nowrap;}
 .empty-state{padding:48px 20px;text-align:center;color:var(--ink-faint);}
 .empty-state .emoji{font-size:30px;display:block;margin-bottom:8px;}
@@ -472,7 +473,8 @@ const state = {
   filter: { repairs:'', tanks:'' },
   repairsView: 'list',
   repairsStatsRange: { from:'', to:'' },
-  repairsListRange: { from:'', to:'' }
+  repairsListRange: { from:'', to:'' },
+  installsListRange: { from:'', to:'' }
 };
 
 async function loadAll(){
@@ -702,6 +704,7 @@ const MODULES = {
     emptyMsg: '尚無裝機紀錄，點右上角「新增裝機」開始記錄。',
     searchPlaceholder: '搜尋站點、客戶、區域、電話…',
     statusField: null,
+    dateField: '裝機日期',
     rowClick: true,
     titleField: '站點名稱',
     fields: [
@@ -740,17 +743,17 @@ const MODULES = {
       {key:'歸還日期', label:'歸還日期', type:'date', col:1},
       {key:'歸還時間', label:'歸還時間', type:'time', col:1},
       {key:'用途', label:'用途', type:'multiselect', options:['維修','裝機','拆機','改管','洗桶','保養'], full:true},
-      {key:'領用人', label:'領用人', type:'select', dynamicSource:'engineers', col:1},
+      {key:'領用人', label:'領用人（最多選 2 位）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true},
       {key:'保管人', label:'保管人簽收', type:'text', col:1},
       {key:'備註', label:'備註', type:'textarea', full:true},
     ],
     columns:[
       {key:'車號', label:'車號', render:r=>`<span class="cell-mono cell-main">${esc(r['車號']||'—')}</span>`},
-      {key:'用途', label:'用途', render:r=>esc((r['用途']||[]).join('、')||'—')},
+      {key:'用途', label:'用途', render:r=>`<span class="cell-plain cell-wrap">${esc((Array.isArray(r['用途'])?r['用途']:[]).join('、')||'—')}</span>`},
       {key:'領用', label:'領用', render:r=>`<span class="cell-mono">${esc(fmtDate(r['領用日期']))} ${esc(r['領用時間']||'')}</span>`},
       {key:'歸還', label:'歸還／狀態', render:r=> r['歸還日期'] ? `<span class="cell-mono">${esc(fmtDate(r['歸還日期']))} ${esc(r['歸還時間']||'')}</span>` : badge('借出中')},
-      {key:'領用人', label:'領用人', render:r=>esc(r['領用人']||'—')},
-      {key:'保管人', label:'保管人', render:r=>esc(r['保管人']||'—')},
+      {key:'領用人', label:'領用人', render:r=>`<span class="cell-plain cell-wrap">${esc((Array.isArray(r['領用人'])?r['領用人']:(r['領用人']?[r['領用人']]:[])).join('、')||'—')}</span>`},
+      {key:'保管人', label:'保管人', render:r=>`<span class="cell-plain cell-wrap">${esc(r['保管人']||'—')}</span>`},
     ]
   }
 };
@@ -833,6 +836,77 @@ function renderRepairItemsPie(rows, totalCount){
   return `
     <div class="pie-chart" style="background:conic-gradient(${gradientParts});"></div>
     <div class="pie-legend">${legendHTML}</div>
+  `;
+}
+
+/* 通用圓餅圖：slices = [{name, value, color}]，unit 為圖例中的計量單位文字（如「個」「次」） */
+function renderGenericPie(slices, unit){
+  const total = slices.reduce((s,x)=>s+x.value,0);
+  if(!slices.length || total<=0) return '';
+  let acc = 0;
+  const gradientParts = slices.map(s=>{
+    const pct = total ? (s.value/total*100) : 0;
+    const start = acc; acc += pct;
+    return `${s.color} ${start.toFixed(2)}% ${acc.toFixed(2)}%`;
+  }).join(', ');
+  const legendHTML = slices.map(s=>{
+    const pct = total ? (s.value/total*100) : 0;
+    return `<div class="pie-legend-row"><span class="pie-dot" style="background:${s.color}"></span><span class="pie-legend-name">${esc(s.name)}</span><span class="pie-legend-val">${s.value}${unit||''}（${pct.toFixed(1)}%）</span></div>`;
+  }).join('');
+  return `
+    <div class="pie-chart" style="background:conic-gradient(${gradientParts});"></div>
+    <div class="pie-legend">${legendHTML}</div>
+  `;
+}
+
+/* ============ 桶槽清洗：統計表 + 圓餅圖（顯示於分頁最上方） ============ */
+const TANK_STATUS_COLORS = { '未處理':'#C1473A', '已出單':'#D98F2B', '已清洗':'#3F8F5F' };
+
+function computeTankStats(){
+  const statuses = MODULES.tanks.statusOptions || [];
+  const counts = {};
+  statuses.forEach(s=>{ counts[s] = 0; });
+  let unset = 0;
+  state.tanks.forEach(t=>{
+    const s = (t.status||'').trim();
+    if(!s){ unset++; return; }
+    counts[s] = (counts[s]||0) + 1;
+  });
+  return { counts, unset, total: state.tanks.length };
+}
+
+function renderTanksStatsPanel(){
+  const { counts, unset, total } = computeTankStats();
+  const slices = Object.entries(counts).map(([name,value])=>({name, value, color: TANK_STATUS_COLORS[name] || '#7A8B98'}));
+  if(unset>0) slices.push({name:'未設定', value:unset, color:'#B7C1C8'});
+
+  return `
+    <div class="section-head" style="margin-top:0;">
+      <h2>🛢️ 桶槽清洗統計</h2>
+      <span class="hint">共 ${total} 個站點</span>
+    </div>
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>清洗狀態</th><th>站點數</th><th>佔比</th></tr></thead>
+          <tbody>
+            ${slices.length ? slices.map(s=>`
+              <tr>
+                <td class="cell-main">${esc(s.name)}</td>
+                <td class="cell-mono">${s.value}</td>
+                <td class="cell-mono">${total ? (s.value/total*100).toFixed(1) : '0.0'}%</td>
+              </tr>`).join('') : `<tr><td colspan="3"><div class="empty-state"><span class="emoji">🛢️</span>尚無站點資料</div></td></tr>`}
+          </tbody>
+          ${slices.length ? `<tfoot><tr><td class="cell-main">總計</td><td class="cell-mono">${total}</td><td class="cell-mono">100%</td></tr></tfoot>` : ''}
+        </table>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-title-row"><h3>🥧 清洗狀態佔比</h3></div>
+      <div class="pie-panel">
+        ${total>0 ? renderGenericPie(slices, ' 個') : `<div class="empty-state" style="padding:12px 0;"><span class="emoji">🥧</span>尚無可繪製圖表的資料</div>`}
+      </div>
+    </div>
   `;
 }
 
@@ -1003,6 +1077,21 @@ async function exportStatsPPT(){
   }
 }
 
+/* 通用時間區間篩選：目前 repairs 用「報修/結案/出庫日期」、installs 用 cfg.dateField（裝機日期） */
+const LIST_RANGE_STATE_KEY = { repairs:'repairsListRange', installs:'installsListRange' };
+function getModuleDate(key, r){
+  if(key==='repairs') return getRepairDate(r);
+  const cfg = MODULES[key];
+  if(cfg && cfg.dateField) return normDate(r[cfg.dateField]);
+  return '';
+}
+function clearListRange(key){
+  const sk = LIST_RANGE_STATE_KEY[key];
+  if(!sk) return;
+  state[sk] = { from:'', to:'' };
+  renderContent();
+}
+
 function renderModuleTab(key){
   const cfg = MODULES[key];
   if(key==='repairs' && state.repairsView==='stats'){
@@ -1015,11 +1104,12 @@ function renderModuleTab(key){
       return (r[cfg.statusField]||'') === state.filter[key] || (!r[cfg.statusField] && state.filter[key]==='__empty__');
     });
 
-  if(key==='repairs'){
-    const lr = state.repairsListRange;
+  const rangeStateKey = LIST_RANGE_STATE_KEY[key];
+  if(rangeStateKey){
+    const lr = state[rangeStateKey];
     if(lr.from || lr.to){
       rows = rows.filter(r=>{
-        const d = getRepairDate(r);
+        const d = getModuleDate(key, r);
         if(!d) return false;
         if(lr.from && d < lr.from) return false;
         if(lr.to && d > lr.to) return false;
@@ -1035,14 +1125,15 @@ function renderModuleTab(key){
       ${statusOpts.map(o=>`<option value="${esc(o)}" ${state.filter[key]===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select>` : '';
 
-  const repairsRangeHTML = key==='repairs' ? `
-    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">起 <input type="date" id="list_range_from" value="${esc(state.repairsListRange.from)}"></label>
-    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">迄 <input type="date" id="list_range_to" value="${esc(state.repairsListRange.to)}"></label>
-    ${(state.repairsListRange.from||state.repairsListRange.to) ? `<button class="btn btn-ghost btn-sm" onclick="app.clearRepairsListRange()">清除區間</button>` : ''}
+  const rangeHTML = rangeStateKey ? `
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">起 <input type="date" id="list_range_from" value="${esc(state[rangeStateKey].from)}"></label>
+    <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">迄 <input type="date" id="list_range_to" value="${esc(state[rangeStateKey].to)}"></label>
+    ${(state[rangeStateKey].from||state[rangeStateKey].to) ? `<button class="btn btn-ghost btn-sm" onclick="app.clearListRange('${key}')">清除區間</button>` : ''}
   ` : '';
 
   const theadHTML = `<tr>${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
   const toggleHTML = key==='repairs' ? renderRepairsViewToggle() : '';
+  const tanksStatsHTML = key==='tanks' ? renderTanksStatsPanel() : '';
 
   const bodyHTML = rows.length ? rows.map(r=>`
     <tr ${cfg.rowClick ? `class="row-clickable" onclick="app.openDetail('${key}','${r.id}')"` : ''}>
@@ -1056,8 +1147,9 @@ function renderModuleTab(key){
     </tr>`).join('') : `<tr><td colspan="${cfg.columns.length+1}"><div class="empty-state"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div></td></tr>`;
 
   return `
+    ${tanksStatsHTML}
     ${toggleHTML}
-    <div class="section-head" style="${key==='repairs'?'margin-top:0;':''}">
+    <div class="section-head" style="${(key==='repairs'||key==='tanks')?'margin-top:0;':''}">
       <h2>${cfg.icon} ${esc(cfg.title)}</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
@@ -1068,7 +1160,7 @@ function renderModuleTab(key){
       <div class="panel-toolbar">
         <input class="search-input" id="search_${key}" placeholder="${esc(cfg.searchPlaceholder)}" value="${esc(state.search[key])}">
         ${statusFilterHTML}
-        ${repairsRangeHTML}
+        ${rangeHTML}
         <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆</span>
       </div>
       <div class="table-wrap">
@@ -1101,18 +1193,16 @@ function wireModuleTabEvents(key){
   if(filterEl){
     filterEl.addEventListener('change', (e)=>{ state.filter[key]=e.target.value; renderContent(); });
   }
-  if(key==='repairs'){
+  const rangeStateKey = LIST_RANGE_STATE_KEY[key];
+  if(rangeStateKey){
     const rFromEl = document.getElementById('list_range_from');
     const rToEl = document.getElementById('list_range_to');
-    if(rFromEl) rFromEl.addEventListener('change', e=>{ state.repairsListRange.from = e.target.value; renderContent(); });
-    if(rToEl) rToEl.addEventListener('change', e=>{ state.repairsListRange.to = e.target.value; renderContent(); });
+    if(rFromEl) rFromEl.addEventListener('change', e=>{ state[rangeStateKey].from = e.target.value; renderContent(); });
+    if(rToEl) rToEl.addEventListener('change', e=>{ state[rangeStateKey].to = e.target.value; renderContent(); });
   }
 }
 
-function clearRepairsListRange(){
-  state.repairsListRange = { from:'', to:'' };
-  renderContent();
-}
+
 
 /* ============ Repair items checklist (維修工單 專用) ============ */
 function renderRepairItemsSection(data){
@@ -1232,9 +1322,11 @@ function renderField(f, data){
   } else if(f.type==='textarea'){
     inputHTML = `<textarea id="fld_${f.key}">${esc(val||'')}</textarea>`;
   } else if(f.type==='multiselect'){
-    const selected = Array.isArray(val) ? val : [];
-    inputHTML = `<div class="checkbox-row">${f.options.map(o=>`
-      <label><input type="checkbox" value="${esc(o)}" data-multi="${f.key}" ${selected.includes(o)?'checked':''}> ${esc(o)}</label>
+    const opts = f.dynamicSource ? (state[f.dynamicSource]||[]) : f.options;
+    const selected = Array.isArray(val) ? val : (val ? [val] : []);
+    const limitAttr = f.maxSelect ? ` onchange="app.enforceCheckboxLimit(this,${f.maxSelect})"` : '';
+    inputHTML = `<div class="checkbox-row">${opts.map(o=>`
+      <label><input type="checkbox" value="${esc(o)}" data-multi="${f.key}" ${selected.includes(o)?'checked':''}${limitAttr}> ${esc(o)}</label>
     `).join('')}</div>`;
   } else {
     inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':'text'))}" id="fld_${f.key}" value="${esc(val||'')}">`;
@@ -1254,6 +1346,17 @@ function collectFormData(fields){
     }
   });
   return out;
+}
+
+/* 限制複選 checkbox 群組最多可選幾項，超過時取消最新勾選並提示 */
+function enforceCheckboxLimit(el, max){
+  if(!el.checked) return;
+  const group = document.querySelectorAll(`[data-multi="${el.dataset.multi}"]`);
+  const checked = Array.from(group).filter(c=>c.checked);
+  if(checked.length > max){
+    el.checked = false;
+    showToast(`最多只能選擇 ${max} 位`, 'err');
+  }
 }
 
 function openDetail(key, id){
@@ -1862,7 +1965,7 @@ window.app = {
   openImport, switchImportSheet, confirmImport,
   openListManager, addListItem, removeListItem, saveListManager,
   setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal,
-  clearRepairsListRange, exportStatsPPT,
+  clearListRange, exportStatsPPT, enforceCheckboxLimit,
   openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
   quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex
 };
