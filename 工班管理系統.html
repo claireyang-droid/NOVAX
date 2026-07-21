@@ -662,6 +662,7 @@ const MODULES = {
       {key:'報修單號', label:'報修單號', type:'text', col:1},
       {key:'維修人員1名稱', label:'維修人員', type:'text', col:1},
       {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
+      {key:'收款狀態', label:'收款狀態', type:'select', options:['已收費','未收費'], col:1},
       {key:'出庫保固', label:'保固到期日', type:'date', col:1},
       {key:'出庫日期', label:'出庫日期', type:'date', col:1},
       {key:'結案日期', label:'結案日期', type:'date', col:1},
@@ -814,6 +815,143 @@ function computeRepairStats(){
   const rows = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count);
   const totalAmount = rows.reduce((s,[,v])=>s+v.amountSum,0);
   return { filtered, rows, totalAmount };
+}
+
+/* ============ 部件保固自動判斷（更換品項後自動啟動 1 年保固） ============ */
+/* 站點識別：優先用「貨品序號」(設備/站點序號)，若無則退回使用客戶名稱，
+   確保同一站點在不同工單之間可以互相比對「這個品項上次是什麼時候換的」 */
+function stationKeyOf(r){
+  const sid = fmtStationId(r['貨品序號']||'');
+  if(sid) return 'SID:'+sid;
+  return 'NAME:'+String(r['客戶名稱']||'').trim();
+}
+
+function addYearsISO(dateStr, n){
+  if(!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  d.setFullYear(d.getFullYear()+n);
+  return d.toISOString().slice(0,10);
+}
+
+/* 建立「站點 × 品項」的更換歷程（只計入勾選自維修項目目錄的品項，不含「其他」自訂項目） */
+function buildPartReplacementLog(){
+  const log = {};
+  state.repairs.forEach(r=>{
+    const items = Array.isArray(r['維修項目']) ? r['維修項目'] : [];
+    if(!items.length) return;
+    const date = getRepairDate(r);
+    if(!date) return;
+    const key = stationKeyOf(r);
+    items.forEach(it=>{
+      if(it.isOther) return;
+      if(!log[key]) log[key] = {};
+      if(!log[key][it.name]) log[key][it.name] = [];
+      log[key][it.name].push({ date, id:r.id });
+    });
+  });
+  Object.values(log).forEach(byName=>{
+    Object.values(byName).forEach(arr=>arr.sort((a,b)=>a.date.localeCompare(b.date)));
+  });
+  return log;
+}
+
+/* 查詢「某站點的某品項」在指定日期(atDate)當下的部件保固狀態：
+   找出 atDate 之前最近一次更換紀錄（排除自己 excludeId），
+   若距離上次更換未滿 1 年，即自動視為「部件保固內」（這次維修理論上該品項免費更換） */
+function partWarrantyStatusAt(stationKey, itemName, atDate, excludeId, log){
+  const arr = (log[stationKey] && log[stationKey][itemName]) || [];
+  const prior = arr.filter(x=> x.id!==excludeId && x.date < atDate).slice(-1)[0];
+  if(!prior) return { status:'new', lastDate:null, expiry:null };
+  const expiry = addYearsISO(prior.date, 1);
+  return { status: (expiry && atDate<=expiry) ? 'in' : 'out', lastDate:prior.date, expiry };
+}
+
+/* 判斷一張工單整體落在統計表的哪一欄：
+   - 使用類別＝保固內 → 整機保固，一律算「系統保固內」（部件自然也保固內）
+   - 使用類別＝保固外 → 再看本次更換的品項，是否有任一項仍在「上次更換起算 1 年」的部件保固內，
+     若有 → 系統保固外／部件保固內（此工單理論上該品項免費）；否則 → 系統保固外／部件保固外（正常收費） */
+function classifyOrderWarranty(r, log){
+  if((r['使用類別']||'')==='保固內') return 'sysIn';
+  const items = (Array.isArray(r['維修項目']) ? r['維修項目'] : []).filter(it=>!it.isOther);
+  if(!items.length) return 'sysOut_partOut';
+  const key = stationKeyOf(r);
+  const date = getRepairDate(r);
+  const anyIn = items.some(it => partWarrantyStatusAt(key, it.name, date, r.id, log).status==='in');
+  return anyIn ? 'sysOut_partIn' : 'sysOut_partOut';
+}
+
+function computeWarrantyBreakdownStats(){
+  const range = state.repairsStatsRange;
+  const filtered = state.repairs.filter(r=>{
+    if(!range.from && !range.to) return true;
+    const d = getRepairDate(r);
+    if(!d) return false;
+    if(range.from && d<range.from) return false;
+    if(range.to && d>range.to) return false;
+    return true;
+  });
+  const log = buildPartReplacementLog();
+  const buckets = { sysIn:[], sysOut_partOut:[], sysOut_partIn:[] };
+  filtered.forEach(r=> buckets[classifyOrderWarranty(r, log)].push(r));
+
+  const summarize = list=>{
+    const paid = list.filter(r=> r['收款狀態']==='已收費');
+    const unpaid = list.filter(r=> r['收款狀態']!=='已收費');
+    const amtOf = arr => arr.reduce((s,r)=> s + (parseFloat(r['維修金額'])||0), 0);
+    return {
+      count: list.length,
+      paidCount: paid.length, unpaidCount: unpaid.length,
+      paidAmt: amtOf(paid), unpaidAmt: amtOf(unpaid), totalAmt: amtOf(list)
+    };
+  };
+  return {
+    total: filtered.length,
+    sysIn: summarize(buckets.sysIn),
+    sysOutPartOut: summarize(buckets.sysOut_partOut),
+    sysOutPartIn: summarize(buckets.sysOut_partIn)
+  };
+}
+
+/* 依圖示版型繪製「系統保固內／外 × 部件保固內／外」案件與金額統計表 */
+function renderWarrantyStatsTable(stats){
+  const pct = (v,total)=> total>0 ? Math.round(v/total*100)+'%' : '0%';
+  const money = v => (v||0).toLocaleString();
+  const cols = [stats.sysIn, stats.sysOutPartOut, stats.sysOutPartIn];
+  const countCells = key => cols.map(c=>`<td class="cell-mono">${c.count>0 ? c[key+'Count'] : 0}</td><td class="cell-mono">${pct(c[key+'Count'], c.count)}</td>`).join('');
+  const totalCountCells = cols.map(c=>`<td class="cell-mono">${c.count}</td><td class="cell-mono">${pct(c.count,c.count)}</td>`).join('');
+  const amtCells = key => cols.map(c=>`<td class="cell-mono" style="color:${key==='paid'?'var(--success)':(key==='unpaid'?'var(--warn)':'var(--primary)')};">${money(c[key+'Amt'])}</td><td class="cell-mono">${pct(c[key+'Amt'], c.totalAmt)}</td>`).join('');
+  const totalAmtCells = cols.map(c=>`<td class="cell-mono" style="color:var(--primary);font-weight:700;">${money(c.totalAmt)}</td><td class="cell-mono">${pct(c.totalAmt,c.totalAmt)}</td>`).join('');
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="3" style="vertical-align:middle;">項目</th>
+            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">系統保固內案件</th>
+            <th colspan="4" style="text-align:center;">系統保固外案件</th>
+          </tr>
+          <tr>
+            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">部件保固內</th>
+            <th colspan="2" style="text-align:center;">部件保固外</th>
+            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">部件保固內</th>
+          </tr>
+          <tr><th>件數</th><th>比例</th><th>件數</th><th>比例</th><th>件數</th><th>比例</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="cell-main">總件數</td><td class="cell-mono" colspan="6" style="background:var(--surface-alt);font-weight:700;">${stats.total}</td></tr>
+          <tr><td class="cell-main">收費件數／比例</td>${countCells('paid')}</tr>
+          <tr><td class="cell-main">未收件數／比例</td>${countCells('unpaid')}</tr>
+          <tr><td class="cell-main">總案件數／比例</td>${totalCountCells}</tr>
+          <tr><td colspan="7" style="padding:4px 0;border-bottom:none;"></td></tr>
+          <tr><td class="cell-main">收費金額／比例</td>${amtCells('paid')}</tr>
+          <tr><td class="cell-main">未收金額／比例</td>${amtCells('unpaid')}</tr>
+          <tr><td class="cell-main">應收金額／比例</td>${totalAmtCells}</tr>
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 const PIE_COLORS = ['#1D4E5F','#E2A33D','#3F8F5F','#C1473A','#7148A6','#2E8B9A','#D98F2B','#5B6E7C','#8B9BA7','#9B5DE5','#00A896','#B7C1C8'];
@@ -988,6 +1126,12 @@ function renderRepairStatsView(){
         <div style="flex:1;"></div>
         <button class="btn btn-primary btn-sm" onclick="app.exportStatsPPT()">📤 匯出 PPT</button>
       </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-title-row"><h3>🛡️ 保固／收款統計</h3></div>
+      <p style="font-size:11.5px;color:var(--ink-faint);margin:0;padding:10px 16px 0;">品項一經更換即自動從當次維修日期起算 1 年部件保固；同一站點若在 1 年內再次維修同一品項，即使系統整體已過保固，該品項仍會自動判定為「部件保固內」。</p>
+      ${renderWarrantyStatsTable(computeWarrantyBreakdownStats())}
     </div>
 
     <div class="panel" style="margin-top:16px;">
@@ -1214,24 +1358,35 @@ function renderRepairItemsSection(data){
   const catalog = state.repairItemCatalog || [];
   const existing = Array.isArray(data['維修項目']) ? data['維修項目'] : [];
   const otherItem = existing.find(x=>x.isOther);
+  const log = buildPartReplacementLog();
+  const atDate = normDate(data['報修日期']) || todayISO();
+  const stKey = stationKeyOf(data);
   const rowsHTML = catalog.map((it,idx)=>{
     const match = existing.find(x=>x.name===it.name && !x.isOther);
     const checked = !!match;
     const qtyVal = match ? match.qty : (it.unit ? '' : 1);
+    const info = partWarrantyStatusAt(stKey, it.name, atDate, data.id, log);
+    const warrantyBadge = info.status==='in'
+      ? `<span class="tag-chip" style="background:var(--success-tint);color:var(--success);border-color:var(--success);white-space:nowrap;">🛡️ 保固內至 ${esc(info.expiry)}</span>`
+      : info.status==='out'
+        ? `<span class="tag-chip" style="white-space:nowrap;">保固已過期（${esc(info.expiry)}）</span>`
+        : `<span class="cell-sub">尚無更換紀錄</span>`;
     return `<tr>
       <td style="text-align:center;"><input type="checkbox" id="ri_chk_${idx}" data-price="${it.price}" onchange="app.updateRepairItemsCalc()" ${checked?'checked':''}></td>
       <td>${esc(it.name)}</td>
       <td class="cell-mono">$${it.price}${it.unit?('/'+esc(it.unit)):''}</td>
       <td><input type="number" min="0" step="0.1" style="width:74px;" id="ri_qty_${idx}" value="${esc(qtyVal)}" oninput="app.updateRepairItemsCalc()" placeholder="${it.unit?esc(it.unit):'數量'}"></td>
       <td class="cell-mono" id="ri_sub_${idx}">$0</td>
+      <td>${warrantyBadge}</td>
     </tr>`;
   }).join('');
   return `
     <div class="field full">
       <label>本次維修使用項目</label>
+      <p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 6px;">勾選並更換的品項，會自動從本次維修日期起算 1 年部件保固；同站點下次維修同一品項若仍在保固期內會自動顯示「保固內」。</p>
       <div class="repair-items-wrap">
         <table class="repair-items-table">
-          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th></tr></thead>
+          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th><th>部件保固狀態</th></tr></thead>
           <tbody>
             ${rowsHTML}
             <tr>
@@ -1240,6 +1395,7 @@ function renderRepairItemsSection(data){
               <td><input type="number" min="0" id="ri_other_price" placeholder="單價" value="${esc(otherItem?otherItem.unitPrice:'')}" style="width:78px;" oninput="app.updateRepairItemsCalc()"></td>
               <td><input type="number" min="0" step="0.1" id="ri_other_qty" placeholder="數量" value="${esc(otherItem?otherItem.qty:1)}" style="width:74px;" oninput="app.updateRepairItemsCalc()"></td>
               <td class="cell-mono" id="ri_sub_other">$0</td>
+              <td class="cell-sub">—（非目錄品項不列入保固追蹤）</td>
             </tr>
           </tbody>
         </table>
