@@ -673,6 +673,7 @@ const MODULES = {
     ],
     columns: [
       {key:'維修狀況', label:'狀況', render:r=>renderStatusSelect('repairs', r.id, r['維修狀況'], state.repairStatuses||[])},
+      {key:'報修單號', label:'報修單號', render:r=>`<span class="cell-mono cell-main">${esc(r['報修單號']||'—')}</span>`},
       {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
       {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
       {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
@@ -775,7 +776,7 @@ function normDate(d){
   return String(d).slice(0,10).replace(/\//g,'-');
 }
 function getRepairDate(r){
-  return normDate(r['結案日期'] || r['報修日期'] || r['出庫日期'] || '');
+  return normDate(r['報修日期'] || '');
 }
 
 function renderRepairsViewToggle(){
@@ -1227,7 +1228,7 @@ async function exportStatsPPT(){
   }
 }
 
-/* 通用時間區間篩選：目前 repairs 用「報修/結案/出庫日期」、installs 用 cfg.dateField（裝機日期） */
+/* 通用時間區間篩選：repairs 一律用「報修日期」、installs 用 cfg.dateField（裝機日期） */
 const LIST_RANGE_STATE_KEY = { repairs:'repairsListRange', installs:'installsListRange' };
 function getModuleDate(key, r){
   if(key==='repairs') return getRepairDate(r);
@@ -1263,6 +1264,9 @@ function getFilteredModuleRows(key){
         return true;
       });
     }
+  }
+  if(key==='repairs'){
+    rows = [...rows].sort((a,b)=> String(b['報修單號']||'').localeCompare(String(a['報修單號']||''), undefined, {numeric:true}));
   }
   return rows;
 }
@@ -1633,13 +1637,13 @@ async function saveForm(key, id){
   STATION_ID_FIELDS.forEach(fk=>{ if(fk in formData) formData[fk] = fmtStationId(formData[fk]); });
   if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
 
-  /* 新增維修工單時，若報修單號已存在，先詢問是否覆蓋原資料 */
-  if(key==='repairs' && !id){
+  /* 維修工單新增或編輯時，只要報修單號跟其他工單相同，就跳出提醒（可選擇仍要繼續） */
+  if(key==='repairs'){
     const orderNo = (formData['報修單號']||'').trim();
     if(orderNo){
-      const dup = state.repairs.find(r=>(r['報修單號']||'').trim()===orderNo);
+      const dup = state.repairs.find(r=>(r['報修單號']||'').trim()===orderNo && r.id!==id);
       if(dup){
-        confirmRepairOverwrite(dup, formData);
+        confirmRepairDuplicateWarning(id, formData, dup);
         return;
       }
     }
@@ -1661,9 +1665,9 @@ async function commitSaveForm(key, id, formData, toastMsg){
   showToast(toastMsg || (id ? '已儲存變更' : '已新增資料'));
 }
 
-/* 報修單號重複：跳出提示詢問是否覆蓋既有工單 */
-function confirmRepairOverwrite(existing, formData){
-  window.__pendingRepairOverwrite = formData;
+/* 報修單號重複：新增或編輯時都會檢查，跳出提醒視窗，使用者可選擇返回修改或仍要繼續 */
+function confirmRepairDuplicateWarning(id, formData, existing){
+  window.__pendingRepairDuplicate = { id, formData };
   openModalHTML(`
     <div class="modal-head"><h3>⚠️ 報修單號重複</h3><button class="modal-close" onclick="app.closeModal()">✕</button></div>
     <div class="modal-body">
@@ -1676,27 +1680,27 @@ function confirmRepairOverwrite(existing, formData){
           狀況描述：${esc(existing['狀況描述']||'—')}
         </div>
       </div>
-      <p style="margin-top:12px;color:var(--ink-soft);font-size:13px;">要用這次填寫的內容覆蓋原有工單，還是返回修改報修單號？</p>
+      <p style="margin-top:12px;color:var(--ink-soft);font-size:13px;">請確認是否為重複報修。如果不是重複，可以直接繼續新增／儲存。</p>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="app.cancelRepairOverwrite()">返回修改</button>
-      <button class="btn btn-danger" onclick="app.doRepairOverwrite('${existing.id}')">覆蓋原有資料</button>
+      <button class="btn btn-ghost" onclick="app.cancelRepairDuplicate()">返回修改</button>
+      <button class="btn btn-primary" onclick="app.confirmRepairDuplicateProceed()">仍要繼續</button>
     </div>
   `);
 }
 
-function cancelRepairOverwrite(){
-  const formData = window.__pendingRepairOverwrite;
-  window.__pendingRepairOverwrite = null;
-  if(formData) openFormModal('repairs', formData, true);
+function cancelRepairDuplicate(){
+  const pending = window.__pendingRepairDuplicate;
+  window.__pendingRepairDuplicate = null;
+  if(pending) openFormModal('repairs', {...pending.formData, id:pending.id||''}, !pending.id);
   else closeModal();
 }
 
-async function doRepairOverwrite(existingId){
-  const formData = window.__pendingRepairOverwrite;
-  window.__pendingRepairOverwrite = null;
-  if(!formData){ closeModal(); return; }
-  await commitSaveForm('repairs', existingId, formData, '已覆蓋原有工單資料');
+async function confirmRepairDuplicateProceed(){
+  const pending = window.__pendingRepairDuplicate;
+  window.__pendingRepairDuplicate = null;
+  if(!pending){ closeModal(); return; }
+  await commitSaveForm('repairs', pending.id, pending.formData, pending.id ? '已儲存變更' : '已新增資料');
 }
 
 function confirmDelete(key, id){
@@ -2325,7 +2329,7 @@ window.app = {
   openListManager, addListItem, removeListItem, saveListManager,
   setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal,
   clearListRange, exportStatsPPT, enforceCheckboxLimit,
-  cancelRepairOverwrite, doRepairOverwrite,
+  cancelRepairDuplicate, confirmRepairDuplicateProceed,
   openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
   quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex
 };
