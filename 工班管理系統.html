@@ -765,6 +765,8 @@ const MODULES = {
         : '<span class="cell-sub">尚未派修</span>' },
       {key:'維修人員1名稱', label:'維修人員', render:r=>esc(engineerListText(r['維修人員1名稱'])||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
+      {key:'維修金額', label:'維修金額', render:r=> r['維修金額'] ? `<span class="cell-mono">$${(parseFloat(r['維修金額'])||0).toLocaleString()}</span>` : '<span class="cell-sub">—</span>'},
+      {key:'發票號碼', label:'發票號碼', render:r=>`<span class="cell-mono">${esc(r['發票號碼']||'—')}</span>`},
     ]
   },
 
