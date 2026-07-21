@@ -1717,9 +1717,8 @@ function openFormModal(key, data, isCreate){
   if(key==='repairs') wireRepairAutoStatus();
 }
 
-/* 自動辨識：維修工單只要「維修描述」與「維修人員」都有填寫，且目前狀況還沒設定或仍是待修/維修中，
-   就自動把「維修狀況」帶入「已完修」，避免忘記手動切換狀態 */
-const REPAIR_OPEN_STATUSES = ['', '待修', '維修中'];
+/* 自動辨識：維修工單只要「維修描述」與「維修人員」都有填寫，就自動把「維修狀況」改成「已完修」
+   （不論目前狀況是什麼，包含轉嘉油、轉尚恩等自訂狀況也會被覆蓋） */
 function applyRepairAutoStatus(){
   const descEl = document.getElementById('fld_維修描述');
   const engEl = document.getElementById('fld_維修人員1名稱');
@@ -1727,7 +1726,7 @@ function applyRepairAutoStatus(){
   if(!descEl || !engEl || !statusEl) return;
   const hasDesc = descEl.value.trim();
   const hasEngineer = engEl.value.trim();
-  if(hasDesc && hasEngineer && REPAIR_OPEN_STATUSES.includes(statusEl.value)){
+  if(hasDesc && hasEngineer && statusEl.value!=='已完修'){
     const hasOption = Array.from(statusEl.options).some(o=>o.value==='已完修');
     if(hasOption){
       statusEl.value = '已完修';
@@ -1756,11 +1755,11 @@ async function saveForm(key, id){
   STATION_ID_FIELDS.forEach(fk=>{ if(fk in formData) formData[fk] = fmtStationId(formData[fk]); });
   if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
 
-  /* 保險機制：存檔時再次確認，若維修描述與維修人員都有值但狀況還沒改，自動設為已完修 */
+  /* 保險機制：存檔時再次確認，若維修描述與維修人員都有值就自動設為已完修（覆蓋原本狀況） */
   if(key==='repairs'){
     const hasDesc = (formData['維修描述']||'').trim();
     const hasEngineer = (formData['維修人員1名稱']||'').trim();
-    if(hasDesc && hasEngineer && REPAIR_OPEN_STATUSES.includes((formData['維修狀況']||'').trim())){
+    if(hasDesc && hasEngineer && (formData['維修狀況']||'').trim()!=='已完修'){
       if((state.repairStatuses||[]).includes('已完修')) formData['維修狀況'] = '已完修';
     }
   }
