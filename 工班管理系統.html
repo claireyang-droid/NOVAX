@@ -476,7 +476,8 @@ const state = {
   repairsView: 'list',
   repairsStatsRange: { from:'', to:'' },
   repairsListRange: { from:'', to:'' },
-  installsListRange: { from:'', to:'' }
+  installsListRange: { from:'', to:'' },
+  selection: { repairs:new Set(), tanks:new Set(), installs:new Set(), trucks:new Set() }
 };
 
 async function loadAll(){
@@ -1241,18 +1242,15 @@ function clearListRange(key){
   renderContent();
 }
 
-function renderModuleTab(key){
+/* 共用篩選邏輯（搜尋 / 狀態 / 日期區間），供列表渲染與「全選目前畫面」共用，避免邏輯分岔 */
+function getFilteredModuleRows(key){
   const cfg = MODULES[key];
-  if(key==='repairs' && state.repairsView==='stats'){
-    return renderRepairStatsView();
-  }
   let rows = state[key].filter(r => matchesSearch(r, state.search[key]))
     .filter(r => {
       if(!cfg.statusField) return true;
       if(!state.filter[key]) return true;
       return (r[cfg.statusField]||'') === state.filter[key] || (!r[cfg.statusField] && state.filter[key]==='__empty__');
     });
-
   const rangeStateKey = LIST_RANGE_STATE_KEY[key];
   if(rangeStateKey){
     const lr = state[rangeStateKey];
@@ -1266,6 +1264,21 @@ function renderModuleTab(key){
       });
     }
   }
+  return rows;
+}
+
+function renderModuleTab(key){
+  const cfg = MODULES[key];
+  if(key==='repairs' && state.repairsView==='stats'){
+    return renderRepairStatsView();
+  }
+  const rows = getFilteredModuleRows(key);
+  if(!state.selection[key]) state.selection[key] = new Set();
+  const sel = state.selection[key];
+  /* 選取中的 id 若已不在目前資料裡（例如已被刪除），清掉避免計數錯誤 */
+  Array.from(sel).forEach(id=>{ if(!state[key].some(r=>r.id===id)) sel.delete(id); });
+  const selCount = sel.size;
+  const allVisibleSelected = rows.length>0 && rows.every(r=>sel.has(r.id));
 
   const statusOpts = cfg.dynamicStatusSource ? (state[cfg.dynamicStatusSource]||[]) : cfg.statusOptions;
   const statusFilterHTML = statusOpts ? `
@@ -1274,18 +1287,22 @@ function renderModuleTab(key){
       ${statusOpts.map(o=>`<option value="${esc(o)}" ${state.filter[key]===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select>` : '';
 
+  const rangeStateKey = LIST_RANGE_STATE_KEY[key];
   const rangeHTML = rangeStateKey ? `
     <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">起 <input type="date" id="list_range_from" value="${esc(state[rangeStateKey].from)}"></label>
     <label style="font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:6px;">迄 <input type="date" id="list_range_to" value="${esc(state[rangeStateKey].to)}"></label>
     ${(state[rangeStateKey].from||state[rangeStateKey].to) ? `<button class="btn btn-ghost btn-sm" onclick="app.clearListRange('${key}')">清除區間</button>` : ''}
   ` : '';
 
-  const theadHTML = `<tr>${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
+  const theadHTML = `<tr>
+    <th style="width:34px;"><input type="checkbox" title="全選目前畫面" ${allVisibleSelected?'checked':''} onclick="app.toggleSelectAllRows('${key}', this.checked)"></th>
+    ${cfg.columns.map(c=>`<th>${esc(c.label)}</th>`).join('')}<th style="text-align:right;">操作</th></tr>`;
   const toggleHTML = key==='repairs' ? renderRepairsViewToggle() : '';
   const tanksStatsHTML = key==='tanks' ? renderTanksStatsPanel() : '';
 
   const bodyHTML = rows.length ? rows.map(r=>`
     <tr ${cfg.rowClick ? `class="row-clickable" onclick="app.openDetail('${key}','${r.id}')"` : ''}>
+      <td onclick="event.stopPropagation()"><input type="checkbox" ${sel.has(r.id)?'checked':''} onclick="app.toggleRowSelect('${key}','${r.id}', this.checked)"></td>
       ${cfg.columns.map(c=>`<td>${c.render(r)}</td>`).join('')}
       <td onclick="event.stopPropagation()">
         <div class="row-actions">
@@ -1293,7 +1310,7 @@ function renderModuleTab(key){
           <button class="btn btn-danger btn-sm" onclick="app.confirmDelete('${key}','${r.id}')">刪除</button>
         </div>
       </td>
-    </tr>`).join('') : `<tr><td colspan="${cfg.columns.length+1}"><div class="empty-state"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div></td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="${cfg.columns.length+2}"><div class="empty-state"><span class="emoji">${cfg.icon}</span>${esc(cfg.emptyMsg)}</div></td></tr>`;
 
   return `
     ${tanksStatsHTML}
@@ -1301,6 +1318,7 @@ function renderModuleTab(key){
     <div class="section-head" style="${(key==='repairs'||key==='tanks')?'margin-top:0;':''}">
       <h2>${cfg.icon} ${esc(cfg.title)}</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${selCount ? `<button class="btn btn-danger" onclick="app.confirmBatchDelete('${key}')">🗑 刪除選取的 ${selCount} 筆</button>` : ''}
         <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
         <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':'工單'))}</button>
       </div>
@@ -1310,7 +1328,7 @@ function renderModuleTab(key){
         <input class="search-input" id="search_${key}" placeholder="${esc(cfg.searchPlaceholder)}" value="${esc(state.search[key])}">
         ${statusFilterHTML}
         ${rangeHTML}
-        <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆</span>
+        <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆${selCount?`，已選取 ${selCount} 筆`:''}</span>
       </div>
       <div class="table-wrap">
         <table><thead>${theadHTML}</thead><tbody>${bodyHTML}</tbody></table>
@@ -1694,10 +1712,59 @@ function confirmDelete(key, id){
 }
 async function doDelete(key, id){
   state[key] = state[key].filter(r=>r.id!==id);
+  if(state.selection[key]) state.selection[key].delete(id);
   closeModal();
   renderContent();
   await persist(key);
   showToast('已刪除');
+}
+
+/* ============ 批次選取／刪除 ============ */
+function toggleRowSelect(key, id, checked){
+  if(!state.selection[key]) state.selection[key] = new Set();
+  if(checked) state.selection[key].add(id); else state.selection[key].delete(id);
+  renderContent();
+}
+
+function toggleSelectAllRows(key, checked){
+  if(!state.selection[key]) state.selection[key] = new Set();
+  const rows = getFilteredModuleRows(key);
+  if(checked) rows.forEach(r=> state.selection[key].add(r.id));
+  else rows.forEach(r=> state.selection[key].delete(r.id));
+  renderContent();
+}
+
+function confirmBatchDelete(key){
+  const cfg = MODULES[key];
+  const ids = Array.from(state.selection[key]||[]);
+  if(!ids.length) return;
+  const sample = state[key].filter(r=>ids.includes(r.id)).slice(0,6);
+  const titleField = cfg.titleField || (cfg.fields.find(f=>f.required)||{}).key || cfg.fields[0].key;
+  const previewHTML = sample.map(r=>`<li>${esc(r[titleField]||r['客戶名稱']||r['站點']||r['車號']||'（未命名）')}</li>`).join('');
+  const moreNote = ids.length>sample.length ? `<p style="margin:6px 0 0;color:var(--ink-faint);font-size:12px;">…等共 ${ids.length} 筆</p>` : '';
+  openModalHTML(`
+    <div class="modal-head"><h3>⚠️ 刪除選取的 ${ids.length} 筆${cfg.title}</h3><button class="modal-close" onclick="app.closeModal()">✕</button></div>
+    <div class="modal-body">
+      <p style="margin:0 0 8px;color:var(--ink-soft);font-size:13px;">確定要刪除以下選取的 ${ids.length} 筆資料嗎？此動作無法復原。</p>
+      <ul style="margin:0;padding-left:20px;font-size:13px;color:var(--ink);line-height:1.8;">${previewHTML}</ul>
+      ${moreNote}
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.closeModal()">取消</button>
+      <button class="btn btn-danger" onclick="app.doBatchDelete('${key}')">確定刪除 ${ids.length} 筆</button>
+    </div>
+  `);
+}
+
+async function doBatchDelete(key){
+  const ids = new Set(state.selection[key]||[]);
+  if(!ids.size){ closeModal(); return; }
+  state[key] = state[key].filter(r=>!ids.has(r.id));
+  state.selection[key] = new Set();
+  closeModal();
+  renderContent();
+  await persist(key);
+  showToast(`已刪除 ${ids.size} 筆資料`);
 }
 
 /* ============ Overview tab (總覽) ============ */
@@ -1927,7 +1994,7 @@ async function confirmImport(){
     return;
   }
 
-  let imported = 0;
+  const rowObjs = [];
   ctx.dataRows.forEach(row=>{
     const obj = {};
     let hasValue = false;
@@ -1945,16 +2012,90 @@ async function confirmImport(){
       }
       if(val) hasValue = true;
     });
-    if(hasValue){
-      state[key].push(withId(obj));
-      imported++;
-    }
+    if(hasValue) rowObjs.push(obj);
   });
 
+  /* 維修工單匯入時，依「報修單號」比對是否已存在相同單號的既有工單，若有先詢問要覆蓋還是略過 */
+  if(key==='repairs' && Object.values(colToField).includes('報修單號')){
+    const dupPairs = [];
+    const freshRows = [];
+    rowObjs.forEach(obj=>{
+      const orderNo = (obj['報修單號']||'').trim();
+      const existing = orderNo ? state.repairs.find(r=>(r['報修單號']||'').trim()===orderNo) : null;
+      if(existing) dupPairs.push({existing, obj});
+      else freshRows.push(obj);
+    });
+    if(dupPairs.length){
+      showImportDuplicateConfirm(key, cfg, freshRows, dupPairs);
+      return;
+    }
+  }
+
+  await commitImportRows(key, cfg, rowObjs);
+}
+
+async function commitImportRows(key, cfg, rowObjs){
+  rowObjs.forEach(obj=> state[key].push(withId(obj)));
   closeModal();
   renderContent();
   await persist(key);
-  showToast(`已匯入 ${imported} 筆資料到「${cfg.title}」`);
+  showToast(`已匯入 ${rowObjs.length} 筆資料到「${cfg.title}」`);
+  state.importCtx = null;
+}
+
+/* 匯入時發現報修單號重複：列出重複清單，詢問要覆蓋既有工單、略過重複只匯入新資料，還是返回調整欄位對應 */
+function showImportDuplicateConfirm(key, cfg, freshRows, dupPairs){
+  window.__pendingImportDup = { key, cfg, freshRows, dupPairs };
+  const previewRows = dupPairs.slice(0,8).map(({existing,obj})=>`
+    <div class="detail-row">
+      <div class="detail-label">單號 ${esc(obj['報修單號']||'')}</div>
+      <div class="detail-value">
+        既有：${esc(existing['客戶名稱']||'—')}／${esc(truncate(existing['狀況描述']||'',26))}<br>
+        匯入：${esc(obj['客戶名稱']||'—')}／${esc(truncate(obj['狀況描述']||'',26))}
+      </div>
+    </div>`).join('');
+  const moreNote = dupPairs.length>8 ? `<p style="margin:8px 0 0;color:var(--ink-faint);font-size:12px;">…等共 ${dupPairs.length} 筆單號重複，僅預覽前 8 筆</p>` : '';
+
+  openModalHTML(`
+    <div class="modal-head"><h3>⚠️ 發現 ${dupPairs.length} 筆報修單號重複</h3><button class="modal-close" onclick="app.cancelImportDuplicate()">✕</button></div>
+    <div class="modal-body">
+      <p style="margin:0 0 10px;color:var(--ink-soft);font-size:13px;">以下報修單號在既有工單中已經存在，請選擇要如何處理這些重複資料。${freshRows.length ? `另有 <b>${freshRows.length}</b> 筆單號不重複，無論選擇哪一種方式都會直接匯入。` : ''}</p>
+      <div class="detail-list">${previewRows}</div>
+      ${moreNote}
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="app.cancelImportDuplicate()">返回調整對應</button>
+      <button class="btn btn-ghost" onclick="app.resolveImportDuplicate('skip')">略過重複，只匯入新資料</button>
+      <button class="btn btn-danger" onclick="app.resolveImportDuplicate('overwrite')">覆蓋重複的既有工單</button>
+    </div>
+  `);
+}
+
+function cancelImportDuplicate(){
+  const pending = window.__pendingImportDup;
+  window.__pendingImportDup = null;
+  if(pending) renderImportPreview();
+  else closeModal();
+}
+
+async function resolveImportDuplicate(mode){
+  const pending = window.__pendingImportDup;
+  window.__pendingImportDup = null;
+  if(!pending){ closeModal(); return; }
+  const { key, cfg, freshRows, dupPairs } = pending;
+  freshRows.forEach(obj=> state[key].push(withId(obj)));
+  let overwritten = 0;
+  if(mode==='overwrite'){
+    dupPairs.forEach(({existing,obj})=>{
+      const idx = state[key].findIndex(r=>r.id===existing.id);
+      if(idx>-1){ state[key][idx] = {...state[key][idx], ...obj}; overwritten++; }
+    });
+  }
+  closeModal();
+  renderContent();
+  await persist(key);
+  const skipped = mode==='overwrite' ? 0 : dupPairs.length;
+  showToast(`已匯入 ${freshRows.length} 筆新資料${overwritten?`，覆蓋 ${overwritten} 筆重複工單`:''}${skipped?`，略過 ${skipped} 筆重複單號`:''}`);
   state.importCtx = null;
 }
 /* ============ Vehicle / Engineer list manager (used by 貨車登記) ============ */
@@ -2179,6 +2320,8 @@ function goTab(key){
 window.app = {
   goTab, openCreate, openEdit, openDetail, saveForm, confirmDelete, doDelete, closeModal,
   openImport, switchImportSheet, confirmImport,
+  cancelImportDuplicate, resolveImportDuplicate,
+  toggleRowSelect, toggleSelectAllRows, confirmBatchDelete, doBatchDelete,
   openListManager, addListItem, removeListItem, saveListManager,
   setRepairsView, clearStatsRange, updateRepairItemsCalc, applyRepairItemsTotal,
   clearListRange, exportStatsPPT, enforceCheckboxLimit,
