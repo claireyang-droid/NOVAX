@@ -399,6 +399,32 @@ input[type="checkbox"]:focus-visible{outline:2px solid var(--primary-tint);outli
 .sched-cell.empty{color:var(--ink-faint);}
 .sched-worker{font-weight:700;color:var(--primary-dark);white-space:nowrap;}
 
+/* ---------- 派工行事曆 (Dispatch calendar) ---------- */
+.cal-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+.cal-title{font-weight:800;font-size:15px;color:var(--primary-dark);flex:1;text-align:center;min-width:110px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(96px,1fr));gap:6px;overflow-x:auto;}
+.cal-weekday{text-align:center;font-size:11.5px;font-weight:700;color:var(--ink-soft);padding:4px 0;}
+.cal-cell{
+  border:1px solid var(--border);border-radius:8px;padding:6px;min-height:78px;
+  background:var(--bg);cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:border-color .15s,background .15s;
+}
+.cal-cell:hover{border-color:var(--primary);background:#fff;}
+.cal-cell.empty{border:none;background:transparent;cursor:default;}
+.cal-cell.today{border-color:var(--accent);background:var(--accent-tint);}
+.cal-date{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--ink-soft);}
+.cal-cell.today .cal-date{color:var(--warn);}
+.cal-chips{display:flex;flex-direction:column;gap:3px;}
+.cal-chip{
+  font-size:10.5px;font-weight:600;padding:2px 5px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.cal-chip-repair{background:var(--primary-tint);color:var(--primary-dark);}
+.cal-chip-job{background:var(--accent-tint);color:#8a5a10;}
+.cal-leave{font-size:10.5px;color:var(--danger);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+@media (max-width:640px){
+  .cal-grid{grid-template-columns:repeat(7,minmax(76px,1fr));}
+  .cal-cell{min-height:64px;padding:4px;}
+}
+
 /* ---------- Overview two-col ---------- */
 .overview-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;}
 @media (max-width:820px){.overview-grid{grid-template-columns:1fr;}}
@@ -482,9 +508,12 @@ const SEED_TRUCKS = [];
 const SEED_ENGINEERS = ['阿振','阿國','文海','賽門'];
 const SEED_VEHICLES = ['BXG-0680','AYD-5975'];
 const SEED_REPAIR_STATUSES = ['待修','維修中','已完修','轉尚恩','轉嘉油'];
+const SEED_LEAVES = [];
+const SEED_PENDING_JOBS = [];
+const SEED_JOB_TYPES = ['拆機','裝機','移桶','改管','改桶','其他'];
 
 /* ============ Storage helpers (shared across team) ============ */
-const STORAGE_KEYS = { repairs:'repairs', tanks:'tanks', installs:'installs', trucks:'trucks', engineers:'engineers', vehicles:'vehicles', repairStatuses:'repairStatuses', repairItemCatalog:'repairItemCatalog' };
+const STORAGE_KEYS = { repairs:'repairs', tanks:'tanks', installs:'installs', trucks:'trucks', engineers:'engineers', vehicles:'vehicles', repairStatuses:'repairStatuses', repairItemCatalog:'repairItemCatalog', leaves:'leaves', pendingJobs:'pendingJobs', jobTypes:'jobTypes' };
 
 function setSyncing(on){
   const dot = document.getElementById('syncDot');
@@ -542,19 +571,23 @@ const state = {
   vehicles: [],
   repairStatuses: [],
   repairItemCatalog: [],
-  search: { repairs:'', tanks:'', installs:'', trucks:'' },
-  filter: { repairs:'', tanks:'' },
+  leaves: [],
+  pendingJobs: [],
+  jobTypes: [],
+  dispatchCal: { year: new Date().getFullYear(), month: new Date().getMonth() },
+  search: { repairs:'', tanks:'', installs:'', trucks:'', leaves:'', pendingJobs:'' },
+  filter: { repairs:'', tanks:'', pendingJobs:'' },
   repairsView: 'list',
   repairsStatsRange: { from:'', to:'' },
   repairsListRange: { from:'', to:'' },
   installsListRange: { from:'', to:'' },
-  selection: { repairs:new Set(), tanks:new Set(), installs:new Set(), trucks:new Set() },
+  selection: { repairs:new Set(), tanks:new Set(), installs:new Set(), trucks:new Set(), leaves:new Set(), pendingJobs:new Set() },
   page: { repairs:1 },
   pageSize: { repairs:10 }
 };
 
 async function loadAll(){
-  const [repairs, tanks, installs, trucks, engineers, vehicles, repairStatuses, repairItemCatalog] = await Promise.all([
+  const [repairs, tanks, installs, trucks, engineers, vehicles, repairStatuses, repairItemCatalog, leaves, pendingJobs, jobTypes] = await Promise.all([
     storeGet(STORAGE_KEYS.repairs),
     storeGet(STORAGE_KEYS.tanks),
     storeGet(STORAGE_KEYS.installs),
@@ -563,6 +596,9 @@ async function loadAll(){
     storeGet(STORAGE_KEYS.vehicles),
     storeGet(STORAGE_KEYS.repairStatuses),
     storeGet(STORAGE_KEYS.repairItemCatalog),
+    storeGet(STORAGE_KEYS.leaves),
+    storeGet(STORAGE_KEYS.pendingJobs),
+    storeGet(STORAGE_KEYS.jobTypes),
   ]);
   let needsSeed = false;
   state.repairs = repairs || (needsSeed=true, SEED_REPAIRS.map(withId));
@@ -573,6 +609,9 @@ async function loadAll(){
   state.vehicles = vehicles || (needsSeed=true, SEED_VEHICLES.slice());
   state.repairStatuses = repairStatuses || (needsSeed=true, SEED_REPAIR_STATUSES.slice());
   state.repairItemCatalog = repairItemCatalog || (needsSeed=true, DEFAULT_REPAIR_ITEM_CATALOG.map(it=>({...it})));
+  state.leaves = leaves || SEED_LEAVES.map(withId);
+  state.pendingJobs = pendingJobs || SEED_PENDING_JOBS.map(withId);
+  state.jobTypes = jobTypes || (needsSeed=true, SEED_JOB_TYPES.slice());
   if(needsSeed){
     await Promise.all([
       storeSet(STORAGE_KEYS.repairs, state.repairs),
@@ -583,6 +622,7 @@ async function loadAll(){
       storeSet(STORAGE_KEYS.vehicles, state.vehicles),
       storeSet(STORAGE_KEYS.repairStatuses, state.repairStatuses),
       storeSet(STORAGE_KEYS.repairItemCatalog, state.repairItemCatalog),
+      storeSet(STORAGE_KEYS.jobTypes, state.jobTypes),
     ]);
   }
 }
@@ -611,9 +651,9 @@ function statusTone(status){
   const s = (status||'').trim();
   if(!s) return 'grey';
   if(s.startsWith('轉')) return 'purple';
-  if(['待修','未清洗','未處理','借出中','逾期未還'].includes(s)) return 'red';
-  if(['維修中','已出單','清洗中'].includes(s)) return 'amber';
-  if(['已完修','已清洗','已歸還'].includes(s)) return 'green';
+  if(['待修','未清洗','未處理','借出中','逾期未還','待安排'].includes(s)) return 'red';
+  if(['維修中','已出單','清洗中','已安排'].includes(s)) return 'amber';
+  if(['已完修','已清洗','已歸還','已完成'].includes(s)) return 'green';
   return 'grey';
 }
 function badge(status, fallbackLabel){
@@ -684,6 +724,26 @@ function dispatchDayLabel(dateStr){
   return d + ' 派修';
 }
 
+/* 判斷某位工程人員在某日期是否處於請假單所登記的區間內 */
+function isEngineerOnLeave(name, dateStr){
+  if(!name || !dateStr) return false;
+  const d = normDate(dateStr);
+  if(!d) return false;
+  return (state.leaves||[]).some(l=>{
+    const list = Array.isArray(l.engineers) ? l.engineers : [];
+    if(!list.includes(name)) return false;
+    const from = normDate(l.fromDate);
+    const to = normDate(l.toDate) || from;
+    if(!from) return false;
+    return d>=from && d<=to;
+  });
+}
+/* 回傳某日期當天所有請假中的工程人員名單 */
+function leaveEngineersOnDate(dateStr){
+  if(!dateStr) return [];
+  return (state.engineers||[]).filter(e=>isEngineerOnLeave(e, dateStr));
+}
+
 /* generic search across an object's string values */
 function matchesSearch(obj, q){
   if(!q) return true;
@@ -747,6 +807,8 @@ const MODULES = {
     statusField: '維修狀況',
     dynamicStatusSource: 'repairStatuses',
     fields: [
+      {key:'派修', label:'派修', type:'select', options:['已派修'], col:1},
+      {key:'派修日期', label:'派修日期', type:'date', col:1},
       {key:'維修狀況', label:'維修狀況', type:'select', dynamicSource:'repairStatuses', col:1},
       {key:'使用類別', label:'保固類別', type:'select', options:['保固內','保固外'], col:1},
       {key:'客戶名稱', label:'客戶名稱', type:'text', required:true, col:1},
@@ -758,9 +820,7 @@ const MODULES = {
       {key:'維修描述', label:'維修處理說明', type:'textarea', full:true},
       {key:'報修日期', label:'報修日期', type:'date', col:1},
       {key:'報修單號', label:'報修單號', type:'text', col:1},
-      {key:'派修', label:'派修', type:'select', options:['已派修'], col:1},
-      {key:'派修日期', label:'派修日期', type:'date', col:1},
-      {key:'維修人員1名稱', label:'維修人員（最多選 2 位）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true},
+      {key:'維修人員1名稱', label:'維修人員（最多選 2 位，已請假者不會出現）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true, leaveAware:true},
       {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
       {key:'收款狀態', label:'收款狀態', type:'select', options:['已收費','未收費'], col:1},
       {key:'出庫保固', label:'保固到期日', type:'date', col:1},
@@ -771,14 +831,16 @@ const MODULES = {
       {key:'備註', label:'備註', type:'textarea', full:true},
     ],
     columns: [
+      {key:'派修', label:'派修', render:r=> r['維修狀況']==='已完修'
+        ? '<span class="cell-sub">已完修</span>'
+        : (r['派修']==='已派修'
+          ? `<div class="cell-plain">${esc(dispatchDayLabel(r['派修日期']))}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
+          : '<span class="cell-sub">尚未派修</span>') },
       {key:'維修狀況', label:'狀況', render:r=>renderStatusSelect('repairs', r.id, r['維修狀況'], state.repairStatuses||[])},
       {key:'報修單號', label:'報修單號', render:r=>`<span class="cell-mono cell-main">${esc(r['報修單號']||'—')}</span>`},
       {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
       {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
       {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
-      {key:'派修', label:'派修', render:r=> r['派修']==='已派修'
-        ? `<div class="cell-plain">${esc(dispatchDayLabel(r['派修日期']))}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
-        : '<span class="cell-sub">尚未派修</span>' },
       {key:'維修人員1名稱', label:'維修人員', render:r=>esc(engineerListText(r['維修人員1名稱'])||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
       {key:'維修金額', label:'維修金額', render:r=> r['維修金額'] ? `<span class="cell-mono">$${(parseFloat(r['維修金額'])||0).toLocaleString()}</span>` : '<span class="cell-sub">—</span>'},
@@ -869,6 +931,56 @@ const MODULES = {
         return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '—';
       }},
       {key:'保管人', label:'保管人', render:r=>`<span class="cell-plain cell-wrap">${esc(r['保管人']||'—')}</span>`},
+    ]
+  },
+
+  leaves: {
+    title: '請假單',
+    icon: '🌴',
+    emptyMsg: '目前沒有請假紀錄，點右上角「新增請假單」開始登記。',
+    searchPlaceholder: '搜尋人員、事由…',
+    statusField: null,
+    fields: [
+      {key:'engineers', label:'請假人員（可複選）', type:'multiselect', dynamicSource:'engineers', full:true},
+      {key:'fromDate', label:'開始日期', type:'date', required:true, col:1},
+      {key:'toDate', label:'結束日期', type:'date', required:true, col:1},
+      {key:'reason', label:'請假事由', type:'text', col:1},
+      {key:'note', label:'備註', type:'textarea', full:true},
+    ],
+    columns: [
+      {key:'engineers', label:'請假人員', render:r=>{
+        const items = Array.isArray(r.engineers) ? r.engineers : [];
+        return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '<span class="cell-sub">尚未選擇</span>';
+      }},
+      {key:'range', label:'請假區間', render:r=>`<span class="cell-mono">${esc(fmtDate(r.fromDate)||'—')} ～ ${esc(fmtDate(r.toDate)||'—')}</span>`},
+      {key:'reason', label:'事由', render:r=>`<span class="cell-plain">${esc(truncate(r.reason||'',30) || '—')}</span>`},
+    ]
+  },
+
+  pendingJobs: {
+    title: '待安排工作',
+    icon: '📋',
+    emptyMsg: '目前沒有待安排工作，點右上角「新增工作」開始登記（拆機／裝機／移桶／改管／改桶／其他，類型可自訂）。',
+    searchPlaceholder: '搜尋站點、客戶、工作說明…',
+    statusField: '狀態',
+    statusOptions: ['待安排','已安排','已完成'],
+    dateField: '預定日期',
+    fields: [
+      {key:'類型', label:'工作類型', type:'select', dynamicSource:'jobTypes', required:true, col:1},
+      {key:'狀態', label:'狀態', type:'select', options:['待安排','已安排','已完成'], col:1},
+      {key:'站點客戶', label:'站點／客戶名稱', type:'text', col:1},
+      {key:'預定日期', label:'預定日期', type:'date', col:1},
+      {key:'指派人員', label:'指派人員（最多選 2 位，已請假者不會出現）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true, leaveAware:true},
+      {key:'說明', label:'工作說明', type:'textarea', full:true},
+      {key:'備註', label:'備註', type:'textarea', full:true},
+    ],
+    columns: [
+      {key:'類型', label:'類型', render:r=>`<span class="badge badge-grey">${esc(r['類型']||'其他')}</span>`},
+      {key:'狀態', label:'狀態', render:r=>renderStatusSelect('pendingJobs', r.id, r['狀態'], MODULES.pendingJobs.statusOptions||[])},
+      {key:'站點客戶', label:'站點／客戶', render:r=>`<span class="cell-main">${esc(r['站點客戶']||'—')}</span>`},
+      {key:'預定日期', label:'預定日期', render:r=> r['預定日期'] ? `<span class="cell-mono">${esc(fmtDate(r['預定日期']))}</span>` : '<span class="cell-sub">尚未排定</span>'},
+      {key:'指派人員', label:'指派人員', render:r=>esc(engineerListText(r['指派人員'])||'—')},
+      {key:'說明', label:'工作說明', render:r=>`<span class="cell-plain">${esc(truncate(r['說明']||'',34))}</span>`},
     ]
   }
 };
@@ -1692,7 +1804,7 @@ function renderModuleTab(key){
         ${selCount ? `<button class="btn btn-danger" onclick="app.confirmBatchDelete('${key}')">🗑 刪除選取的 ${selCount} 筆</button>` : ''}
         <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
         ${key==='trucks' ? `<button class="btn btn-ghost" onclick="app.exportModuleExcel('${key}')">📤 匯出 Excel</button>` : ''}
-        <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':'工單'))}</button>
+        <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':(key==='leaves'?'請假單':(key==='pendingJobs'?'工作':'工單'))))}</button>
       </div>
     </div>
     <div class="panel">
@@ -1911,11 +2023,12 @@ function renderField(f, data){
     const selected = Array.isArray(val) ? val : (val ? [val] : []);
     const limitAttr = f.maxSelect ? ` onchange="app.enforceCheckboxLimit(this,${f.maxSelect})"` : '';
     const extraVals = selected.filter(v=>v && !opts.includes(v));
+    const leaveHintHTML = f.leaveAware ? `<div class="cell-sub" id="leaveHint_${f.key}" style="margin-top:6px;"></div>` : '';
     inputHTML = `<div class="checkbox-row">${opts.map(o=>`
       <label><input type="checkbox" value="${esc(o)}" data-multi="${f.key}" ${selected.includes(o)?'checked':''}${limitAttr}> ${esc(o)}</label>
     `).join('')}${extraVals.map(v=>`
       <label><input type="checkbox" value="${esc(v)}" data-multi="${f.key}" checked${limitAttr}> ${esc(v)}（匯入值）</label>
-    `).join('')}</div>`;
+    `).join('')}</div>${leaveHintHTML}`;
   } else {
     inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':'text'))}" id="fld_${f.key}" value="${esc(val||'')}">`;
   }
@@ -2029,6 +2142,14 @@ function openFormModal(key, data, isCreate){
   if(key==='repairs') wireRepairAutoStatus();
   if(key==='repairs') wireRepairItemAutoDetect();
   if(key==='repairs') wireRepairDispatch();
+  if(key==='repairs') wireRepairDateAutoFill();
+  if(key==='repairs') wireEngineerLeaveFilter('派修日期','維修人員1名稱');
+  if(key==='pendingJobs') wireEngineerLeaveFilter('預定日期','指派人員');
+}
+
+/* 讓行事曆／設定頁能開啟「已預先帶入部分欄位」的新增表單，例如點某天的日期就直接帶入日期欄位 */
+function openCreateWithDefaults(key, defaults){
+  openFormModal(key, {...(defaults||{})}, true);
 }
 
 /* 自動辨識：維修工單只要「維修描述」與「維修人員」都有填寫，就自動把「維修狀況」改成「已完修」
@@ -2083,6 +2204,32 @@ function wireRepairItemAutoDetect(){
   if(descEl) descEl.addEventListener('input', detectRepairItemsFromDescription);
 }
 
+/* 報修單號自動帶出報修日期：單號前 8 碼即為 YYYYMMDD（例如 202607020003 → 2026/07/02），
+   只要格式驗證通過就自動換算並帶入「報修日期」欄位，使用者也可以手動再調整 */
+function parseDateFromOrderNo(orderNo){
+  const m = String(orderNo||'').trim().match(/^(\d{4})(\d{2})(\d{2})/);
+  if(!m) return '';
+  const [, y, mo, da] = m;
+  const yy = parseInt(y,10), mm = parseInt(mo,10), dd = parseInt(da,10);
+  if(yy < 2000 || yy > 2100) return '';
+  if(mm < 1 || mm > 12) return '';
+  if(dd < 1 || dd > 31) return '';
+  return `${y}-${mo}-${da}`;
+}
+function applyRepairDateFromOrderNo(){
+  const orderEl = document.getElementById('fld_報修單號');
+  const dateEl = document.getElementById('fld_報修日期');
+  if(!orderEl || !dateEl) return;
+  const parsed = parseDateFromOrderNo(orderEl.value);
+  if(parsed) dateEl.value = parsed;
+}
+function wireRepairDateAutoFill(){
+  const orderEl = document.getElementById('fld_報修單號');
+  if(!orderEl) return;
+  orderEl.addEventListener('input', applyRepairDateFromOrderNo);
+  applyRepairDateFromOrderNo();
+}
+
 /* 派修：勾選「已派修」時，若「派修日期」尚未填寫，預設帶入今天日期（使用者可自行改成其他日期，
    之後在「近期安排」會依這個日期自動歸類成今日派修／明日派修） */
 function applyRepairDispatchDate(){
@@ -2091,11 +2238,41 @@ function applyRepairDispatchDate(){
   if(!dispatchEl || !dateEl) return;
   if(dispatchEl.value==='已派修' && !dateEl.value){
     dateEl.value = todayISO();
+    applyEngineerLeaveFilter('派修日期','維修人員1名稱');
   }
 }
 function wireRepairDispatch(){
   const dispatchEl = document.getElementById('fld_派修');
   if(dispatchEl) dispatchEl.addEventListener('change', applyRepairDispatchDate);
+}
+
+/* 派工自動排除請假人員：日期欄位變動時，重新計算當天請假名單，
+   把請假中的人員從可指派複選清單裡「整個隱藏」（不只是變灰），並在下方提示目前請假的人是誰 */
+function applyEngineerLeaveFilter(dateKey, engKey){
+  const dateEl = document.getElementById('fld_'+dateKey);
+  const hintEl = document.getElementById('leaveHint_'+engKey);
+  const boxes = document.querySelectorAll(`[data-multi="${engKey}"]`);
+  if(!boxes.length) return;
+  const dateStr = dateEl ? dateEl.value : '';
+  const onLeave = dateStr ? leaveEngineersOnDate(dateStr) : [];
+  boxes.forEach(cb=>{
+    const label = cb.closest('label');
+    if(!label) return;
+    if(onLeave.includes(cb.value)){
+      cb.checked = false;
+      label.style.display = 'none';
+    } else {
+      label.style.display = '';
+    }
+  });
+  if(hintEl){
+    hintEl.textContent = onLeave.length ? `📌 ${dateStr} 請假中，已自動隱藏：${onLeave.join('、')}` : '';
+  }
+}
+function wireEngineerLeaveFilter(dateKey, engKey){
+  const dateEl = document.getElementById('fld_'+dateKey);
+  if(dateEl) dateEl.addEventListener('change', ()=>applyEngineerLeaveFilter(dateKey, engKey));
+  applyEngineerLeaveFilter(dateKey, engKey);
 }
 
 async function saveForm(key, id){
@@ -2352,6 +2529,137 @@ function renderScheduleTab(){
         ${otherList.map(renderOtherRow).join('')}
       </div>
     </div>` : ''}
+  `;
+}
+
+/* ============ 派工行事曆：以月曆顯示「已派修」維修工單＋「已排定」待安排工作，
+   並自動比對請假單，指派時已請假人員不會出現在人員名單中 ============ */
+function dispatchCalNorm(){
+  if(!state.dispatchCal) state.dispatchCal = { year:new Date().getFullYear(), month:new Date().getMonth() };
+  if(state.dispatchCal.month < 0){ state.dispatchCal.month = 11; state.dispatchCal.year--; }
+  if(state.dispatchCal.month > 11){ state.dispatchCal.month = 0; state.dispatchCal.year++; }
+}
+function dispatchCalPrev(){ dispatchCalNorm(); state.dispatchCal.month--; dispatchCalNorm(); renderContent(); }
+function dispatchCalNext(){ dispatchCalNorm(); state.dispatchCal.month++; dispatchCalNorm(); renderContent(); }
+function dispatchCalToday(){ state.dispatchCal = { year:new Date().getFullYear(), month:new Date().getMonth() }; renderContent(); }
+
+function renderDispatchCalendar(){
+  dispatchCalNorm();
+  const { year, month } = state.dispatchCal;
+  const first = new Date(year, month, 1);
+  const startWeekday = first.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayStr = todayISO();
+  const cells = [];
+  for(let i=0;i<startWeekday;i++) cells.push(null);
+  for(let d=1; d<=daysInMonth; d++) cells.push(d);
+  while(cells.length % 7 !== 0) cells.push(null);
+
+  const weekHeaders = ['日','一','二','三','四','五','六'];
+  let gridHTML = weekHeaders.map(w=>`<div class="cal-weekday">${w}</div>`).join('');
+
+  cells.forEach(d=>{
+    if(d===null){ gridHTML += `<div class="cal-cell empty"></div>`; return; }
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
+    const assignedJobs = (state.pendingJobs||[]).filter(j=>j['預定日期'] && fmtDate(j['預定日期'])===dateStr);
+    const leaveNames = leaveEngineersOnDate(dateStr);
+    const isToday = dateStr === todayStr;
+    const chipsHTML = [
+      ...dispatchedRepairs.map(r=>`<div class="cal-chip cal-chip-repair" onclick="event.stopPropagation();app.openEdit('repairs','${r.id}')" title="${esc(r['客戶名稱']||'')}">🔧 ${esc(truncate(r['客戶名稱']||'—',6))}</div>`),
+      ...assignedJobs.map(j=>`<div class="cal-chip cal-chip-job" onclick="event.stopPropagation();app.openEdit('pendingJobs','${j.id}')" title="${esc(j['站點客戶']||'')}">${esc(j['類型']||'其他')} ${esc(truncate(j['站點客戶']||'',5))}</div>`)
+    ].join('');
+    const leaveHTML = leaveNames.length ? `<div class="cal-leave" title="${esc(leaveNames.join('、'))}">🌴 ${esc(leaveNames.join('、'))}</div>` : '';
+    gridHTML += `<div class="cal-cell${isToday?' today':''}" onclick="app.openDayDetail('${dateStr}')">
+      <div class="cal-date">${d}</div>
+      <div class="cal-chips">${chipsHTML}</div>
+      ${leaveHTML}
+    </div>`;
+  });
+
+  return `
+    <div class="cal-toolbar">
+      <button class="btn btn-ghost btn-sm" onclick="app.dispatchCalPrev()">‹ 上個月</button>
+      <div class="cal-title">${year} 年 ${month+1} 月</div>
+      <button class="btn btn-ghost btn-sm" onclick="app.dispatchCalNext()">下個月 ›</button>
+      <button class="btn btn-ghost btn-sm" onclick="app.dispatchCalToday()">回到今天</button>
+    </div>
+    <div class="cal-grid">${gridHTML}</div>
+  `;
+}
+
+/* 點某一天：顯示當天派修工單／待安排工作／請假人員，並提供快速新增入口（可自動帶入該日期） */
+function openDayDetail(dateStr){
+  const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
+  const assignedJobs = (state.pendingJobs||[]).filter(j=>j['預定日期'] && fmtDate(j['預定日期'])===dateStr);
+  const leaveNames = leaveEngineersOnDate(dateStr);
+
+  const repairRows = dispatchedRepairs.length ? dispatchedRepairs.map(r=>`
+    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')">
+      <div><div class="t">🔧 ${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
+      <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(engineerListText(r['維修人員1名稱'])||'尚未指派')}</div></div>
+    </div>`).join('') : `<div class="empty-state" style="padding:16px;">當天沒有派修工單</div>`;
+
+  const jobRows = assignedJobs.length ? assignedJobs.map(j=>`
+    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('pendingJobs','${j.id}')">
+      <div><div class="t">${esc(j['類型']||'其他')}－${esc(j['站點客戶']||'—')}</div><div class="s">${esc(truncate(j['說明']||'',30))}</div></div>
+      <div style="text-align:right;">${badge(j['狀態'],'待安排')}<div class="s">👷 ${esc(engineerListText(j['指派人員'])||'尚未指派')}</div></div>
+    </div>`).join('') : `<div class="empty-state" style="padding:16px;">當天沒有安排的工作</div>`;
+
+  const leaveHTML = leaveNames.length
+    ? `<div class="tag-row" style="padding:2px 0 4px;">${leaveNames.map(n=>`<span class="tag-chip" style="background:var(--danger-tint);color:var(--danger);border-color:var(--danger);">🌴 ${esc(n)}</span>`).join('')}</div>`
+    : `<div class="cell-sub" style="padding:2px 0 4px;">當天沒有人請假</div>`;
+
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>📅 ${esc(dateStr)} 派工詳情</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="panel-title-row" style="padding:0 0 6px;"><h3>🌴 當日請假</h3></div>
+      ${leaveHTML}
+      <div class="panel-title-row" style="padding:12px 0 6px;"><h3>🔧 派修工單（${dispatchedRepairs.length}）</h3></div>
+      <div class="panel" style="box-shadow:none;">${repairRows}</div>
+      <div class="panel-title-row" style="padding:12px 0 6px;"><h3>📋 待安排工作（${assignedJobs.length}）</h3></div>
+      <div class="panel" style="box-shadow:none;">${jobRows}</div>
+    </div>
+    <div class="modal-foot" style="flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
+      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('leaves', {fromDate:'${dateStr}', toDate:'${dateStr}'})">🌴 新增請假單</button>
+      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('pendingJobs', {'預定日期':'${dateStr}','狀態':'已安排'})">📋 新增待安排工作</button>
+      <button class="btn btn-primary" onclick="app.openCreateWithDefaults('repairs', {'派修':'已派修','派修日期':'${dateStr}'})">🔧 新增派修工單</button>
+    </div>
+  `);
+}
+
+function renderDispatchTab(){
+  const unrepaired = [...state.repairs]
+    .filter(r=>r['維修狀況']!=='已完修')
+    .sort((a,b)=> getRepairDate(a).localeCompare(getRepairDate(b)));
+
+  const unrepairedRows = unrepaired.length ? unrepaired.map(r=>`
+    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')">
+      <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',34))}</div></div>
+      <div style="text-align:right;">${badge(r['維修狀況'])}
+        <div class="s">${r['派修']==='已派修' ? ('👷 '+esc(dispatchDayLabel(r['派修日期']))) : '尚未派修'}</div>
+      </div>
+    </div>`).join('') : `<div class="empty-state"><span class="emoji">🎉</span>目前沒有尚未維修的工單</div>`;
+
+  return `
+    <div class="section-head" style="margin-top:0;">
+      <h2>🗓️ 派工行事曆</h2>
+      <span class="hint">依維修工單的「派修日期」與待安排工作的「預定日期」自動彙整；派工時會自動比對請假單，當天請假的人員不會出現在指派名單中</span>
+    </div>
+    <div class="panel" style="padding:14px;">
+      ${renderDispatchCalendar()}
+    </div>
+
+    <div class="section-head"><h2>🔧 尚未維修的清單（共 ${unrepaired.length} 筆）</h2><span class="hint">維修狀況尚未標記「已完修」的工單，點選可直接派工</span></div>
+    <div class="panel"><div class="mini-list">${unrepairedRows}</div></div>
+
+    ${renderModuleTab('leaves')}
+
+    ${renderModuleTab('pendingJobs')}
   `;
 }
 
@@ -2668,6 +2976,7 @@ const LIST_MANAGER_CFG = {
   vehicles: { title:'管理車輛', icon:'🚚', itemLabel:'車號', placeholder:'輸入車號，例如 BXG-0680', emptyMsg:'尚無車輛，請在下方新增。' },
   engineers: { title:'管理工程人員', icon:'👷', itemLabel:'工程人員', placeholder:'輸入姓名', emptyMsg:'尚無工程人員，請在下方新增。' },
   repairStatuses: { title:'管理維修狀況', icon:'⚙️', itemLabel:'狀態', placeholder:'輸入狀態名稱，例如 待修', emptyMsg:'尚無狀態選項，請在下方新增。' },
+  jobTypes: { title:'管理工作類型', icon:'📋', itemLabel:'工作類型', placeholder:'輸入類型名稱，例如 拆機', emptyMsg:'尚無工作類型，請在下方新增。' },
 };
 
 function renderListManagerBody(kind){
@@ -2827,6 +3136,7 @@ function renderSettingsTab(){
     { icon:'🧰', title:'管理維修項目', desc:'設定維修工單中可勾選的維修品項與單價，供工單自動試算金額。', count:`${(state.repairItemCatalog||[]).length} 個品項`, action:`app.openRepairItemCatalogManager()` },
     { icon:'🚚', title:'管理車輛', desc:'設定貨車領用登記時可選擇的車號清單。', count:`${(state.vehicles||[]).length} 台車輛`, action:`app.openListManager('vehicles')` },
     { icon:'👷', title:'管理工程人員', desc:'設定貨車領用登記時可選擇的工程人員名單。', count:`${(state.engineers||[]).length} 位人員`, action:`app.openListManager('engineers')` },
+    { icon:'📋', title:'管理工作類型', desc:'設定「待安排工作」可選擇的工作類型（如：拆機、裝機、移桶、改管、改桶、其他），可自行新增或刪除。', count:`${(state.jobTypes||[]).length} 個類型`, action:`app.openListManager('jobTypes')` },
   ];
   return `
     <div class="section-head" style="margin-top:0;">
@@ -2850,6 +3160,7 @@ const TAB_LIST = [
   {key:'overview', label:'總覽', icon:'📊'},
   {key:'repairs', label:'維修工單', icon:'🔧'},
   {key:'schedule', label:'近期安排', icon:'📅'},
+  {key:'dispatch', label:'派工行事曆', icon:'🗓️'},
   {key:'tanks', label:'桶槽清洗', icon:'🛢️'},
   {key:'installs', label:'裝機管理', icon:'🏗️'},
   {key:'trucks', label:'貨車登記', icon:'🚚'},
@@ -2870,10 +3181,12 @@ function renderContent(){
   if(state.activeTab==='overview') html = renderOverviewTab();
   else if(state.activeTab==='settings') html = renderSettingsTab();
   else if(state.activeTab==='schedule') html = renderScheduleTab();
+  else if(state.activeTab==='dispatch') html = renderDispatchTab();
   else if(MODULES[state.activeTab]) html = renderModuleTab(state.activeTab);
   el.innerHTML = html;
 
   if(MODULES[state.activeTab]) wireModuleTabEvents(state.activeTab);
+  if(state.activeTab==='dispatch'){ wireModuleTabEvents('leaves'); wireModuleTabEvents('pendingJobs'); }
   renderTabs();
 }
 
@@ -2895,7 +3208,8 @@ window.app = {
   cancelRepairDuplicate, confirmRepairDuplicateProceed,
   openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
   quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex,
-  setPageSize, goToPage
+  setPageSize, goToPage,
+  openCreateWithDefaults, openDayDetail, dispatchCalPrev, dispatchCalNext, dispatchCalToday
 };
 
 /* ============ Init ============ */
