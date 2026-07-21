@@ -656,6 +656,13 @@ function statusTone(status){
   if(['已完修','已清洗','已歸還','已完成'].includes(s)) return 'green';
   return 'grey';
 }
+/* 維修工單「已完修」或「轉」給其他單位（如 轉尚恩／轉嘉油）都算已處理完成，不再列入待處理／尚未維修 */
+function isRepairClosed(r){
+  const s = (r && r['維修狀況'] || '').trim();
+  if(!s) return false;
+  return s==='已完修' || s.startsWith('轉');
+}
+
 function badge(status, fallbackLabel){
   const label = status && String(status).trim() ? status : (fallbackLabel || '未設定');
   const tone = statusTone(status);
@@ -831,8 +838,8 @@ const MODULES = {
       {key:'備註', label:'備註', type:'textarea', full:true},
     ],
     columns: [
-      {key:'派修', label:'派修', render:r=> r['維修狀況']==='已完修'
-        ? '<span class="cell-sub">已完修</span>'
+      {key:'派修', label:'派修', render:r=> isRepairClosed(r)
+        ? '<span class="cell-sub">已處理（'+esc(r['維修狀況'])+'）</span>'
         : (r['派修']==='已派修'
           ? `<div class="cell-plain">${esc(dispatchDayLabel(r['派修日期']))}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
           : '<span class="cell-sub">尚未派修</span>') },
@@ -970,6 +977,7 @@ const MODULES = {
       {key:'狀態', label:'狀態', type:'select', options:['待安排','已安排','已完成'], col:1},
       {key:'站點客戶', label:'站點／客戶名稱', type:'text', col:1},
       {key:'預定日期', label:'預定日期', type:'date', col:1},
+      {key:'所需資源', label:'所需資源（可複選）', type:'multiselect', options:['抽料','吊車','自走車','桶槽'], full:true},
       {key:'指派人員', label:'指派人員（最多選 2 位，已請假者不會出現）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true, leaveAware:true},
       {key:'說明', label:'工作說明', type:'textarea', full:true},
       {key:'備註', label:'備註', type:'textarea', full:true},
@@ -979,6 +987,10 @@ const MODULES = {
       {key:'狀態', label:'狀態', render:r=>renderStatusSelect('pendingJobs', r.id, r['狀態'], MODULES.pendingJobs.statusOptions||[])},
       {key:'站點客戶', label:'站點／客戶', render:r=>`<span class="cell-main">${esc(r['站點客戶']||'—')}</span>`},
       {key:'預定日期', label:'預定日期', render:r=> r['預定日期'] ? `<span class="cell-mono">${esc(fmtDate(r['預定日期']))}</span>` : '<span class="cell-sub">尚未排定</span>'},
+      {key:'所需資源', label:'所需資源', render:r=>{
+        const items = Array.isArray(r['所需資源']) ? r['所需資源'] : [];
+        return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '<span class="cell-sub">—</span>';
+      }},
       {key:'指派人員', label:'指派人員', render:r=>esc(engineerListText(r['指派人員'])||'—')},
       {key:'說明', label:'工作說明', render:r=>`<span class="cell-plain">${esc(truncate(r['說明']||'',34))}</span>`},
     ]
@@ -2428,7 +2440,7 @@ async function doBatchDelete(key){
 
 /* ============ Overview tab (總覽) ============ */
 function renderOverviewTab(){
-  const openRepairs = state.repairs.filter(r=>r['維修狀況']!=='已完修');
+  const openRepairs = state.repairs.filter(r=>!isRepairClosed(r));
   const urgentRepairs = state.repairs.filter(r=>r['維修狀況']==='待修');
   const tanksDone = state.tanks.filter(t=>t.status==='已清洗').length;
   const tanksTotal = state.tanks.length || 1;
@@ -2634,7 +2646,7 @@ function openDayDetail(dateStr){
 
 function renderDispatchTab(){
   const unrepaired = [...state.repairs]
-    .filter(r=>r['維修狀況']!=='已完修')
+    .filter(r=>!isRepairClosed(r))
     .sort((a,b)=> getRepairDate(a).localeCompare(getRepairDate(b)));
 
   const unrepairedRows = unrepaired.length ? unrepaired.map(r=>`
@@ -2654,7 +2666,7 @@ function renderDispatchTab(){
       ${renderDispatchCalendar()}
     </div>
 
-    <div class="section-head"><h2>🔧 尚未維修的清單（共 ${unrepaired.length} 筆）</h2><span class="hint">維修狀況尚未標記「已完修」的工單，點選可直接派工</span></div>
+    <div class="section-head"><h2>🔧 尚未維修的清單（共 ${unrepaired.length} 筆）</h2><span class="hint">維修狀況尚未標記「已完修」或「轉○○」的工單，點選可直接派工</span></div>
     <div class="panel"><div class="mini-list">${unrepairedRows}</div></div>
 
     ${renderModuleTab('leaves')}
