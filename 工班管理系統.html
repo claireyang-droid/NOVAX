@@ -199,6 +199,30 @@ tbody td{padding:11px 14px;border-bottom:1px solid var(--border);vertical-align:
 tbody td .cell-main, tbody td .cell-sub, tbody td .cell-mono{white-space:nowrap;}
 tbody tr:last-child td{border-bottom:none;}
 tbody tr:hover{background:#F7F9FA;}
+
+/* ---------- 保固／收款統計表（維修品項統計頁）專用美化樣式 ---------- */
+.warranty-stats-table table{border:1px solid var(--border);border-radius:10px;}
+.warranty-stats-table td, .warranty-stats-table th{text-align:right;}
+.warranty-stats-table td:first-child, .warranty-stats-table th:first-child{text-align:left;background:var(--surface);}
+.warranty-stats-table thead th:first-child{background:var(--surface-alt);}
+.warranty-stats-table .grp-divider{border-left:2px solid var(--border);}
+.warranty-stats-table .col-tint-in{background:#F2F8F4;}
+.warranty-stats-table thead .col-tint-in{background:var(--success-tint);color:var(--success);}
+.warranty-stats-table .col-tint-out{background:#FBF6EE;}
+.warranty-stats-table thead .col-tint-out{background:var(--warn-tint);color:var(--warn);}
+.warranty-stats-table tbody tr.row-total td{background:var(--surface-alt);font-weight:700;}
+.warranty-stats-table tbody tr.row-total td.col-tint-in{background:#E4F1E8;}
+.warranty-stats-table tbody tr.row-total td.col-tint-out{background:#F5ECDA;}
+.warranty-stats-table tbody tr.row-spacer td{border:none;padding:5px 0;background:transparent;}
+.warranty-stats-table tbody tr:hover td{background:#EEF4F5;}
+.warranty-stats-table tbody tr:hover td.col-tint-in{background:#E1EFE6;}
+.warranty-stats-table tbody tr:hover td.col-tint-out{background:#F2E9D6;}
+.warranty-stats-table .amt-pill{display:inline-block;min-width:64px;padding:3px 12px;border-radius:999px;font-weight:700;font-family:var(--font-mono);font-size:12px;}
+.warranty-stats-table .amt-pill.zero{background:var(--neutral-tint);color:var(--ink-faint);font-weight:500;}
+.warranty-stats-table .amt-pill.paid{background:var(--success);color:#fff;}
+.warranty-stats-table .amt-pill.unpaid{background:var(--warn);color:#fff;}
+.warranty-stats-table .amt-pill.total{background:var(--primary);color:#fff;}
+.warranty-stats-table .pct-tag{font-size:11px;color:var(--ink-faint);font-family:var(--font-mono);}
 .cell-main{font-weight:600;color:var(--ink);}
 .cell-sub{color:var(--ink-faint);font-size:12px;margin-top:2px;}
 .cell-mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
@@ -981,40 +1005,76 @@ function computeWarrantyBreakdownStats(){
 function renderWarrantyStatsTable(stats){
   const pct = (v,total)=> total>0 ? Math.round(v/total*100)+'%' : '0%';
   const money = v => (v||0).toLocaleString();
-  const cols = [stats.sysIn, stats.sysOutPartOut, stats.sysOutPartIn];
-  const countCells = key => cols.map(c=>`<td class="cell-mono">${c.count>0 ? c[key+'Count'] : 0}</td><td class="cell-mono">${pct(c[key+'Count'], c.count)}</td>`).join('');
-  const totalCountCells = cols.map(c=>`<td class="cell-mono">${c.count}</td><td class="cell-mono">${pct(c.count,c.count)}</td>`).join('');
-  const amtCells = key => cols.map(c=>`<td class="cell-mono" style="color:${key==='paid'?'var(--success)':(key==='unpaid'?'var(--warn)':'var(--primary)')};">${money(c[key+'Amt'])}</td><td class="cell-mono">${pct(c[key+'Amt'], c.totalAmt)}</td>`).join('');
-  const totalAmtCells = cols.map(c=>`<td class="cell-mono" style="color:var(--primary);font-weight:700;">${money(c.totalAmt)}</td><td class="cell-mono">${pct(c.totalAmt,c.totalAmt)}</td>`).join('');
+  const groups = [
+    { data: stats.sysIn, tint:'col-tint-in' },
+    { data: stats.sysOutPartOut, tint:'col-tint-out' },
+    { data: stats.sysOutPartIn, tint:'col-tint-in' },
+  ];
+  const countCells = key => groups.map(g=>`
+    <td class="cell-mono ${g.tint} grp-divider">${g.data.count>0 ? g.data[key+'Count'] : 0}</td>
+    <td class="pct-tag ${g.tint}">${pct(g.data[key+'Count'], g.data.count)}</td>`).join('');
+  const totalCountCells = groups.map(g=>`
+    <td class="cell-mono ${g.tint} grp-divider" style="font-weight:700;">${g.data.count}</td>
+    <td class="pct-tag ${g.tint}">${pct(g.data.count,g.data.count)}</td>`).join('');
+  const amtCells = key => groups.map(g=>{
+    const v = g.data[key+'Amt'];
+    const kind = key==='paid' ? 'paid' : 'unpaid';
+    return `
+    <td class="${g.tint} grp-divider"><span class="amt-pill ${v>0?kind:'zero'}">${money(v)}</span></td>
+    <td class="pct-tag ${g.tint}">${pct(v, g.data.totalAmt)}</td>`;
+  }).join('');
+  const totalAmtCells = groups.map(g=>`
+    <td class="${g.tint} grp-divider"><span class="amt-pill total">${money(g.data.totalAmt)}</span></td>
+    <td class="pct-tag ${g.tint}">${pct(g.data.totalAmt,g.data.totalAmt)}</td>`).join('');
 
   return `
-    <div class="table-wrap">
+    <div class="table-wrap warranty-stats-table">
       <table>
         <thead>
           <tr>
             <th rowspan="3" style="vertical-align:middle;">項目</th>
-            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">系統保固內案件</th>
-            <th colspan="4" style="text-align:center;">系統保固外案件</th>
+            <th colspan="2" class="col-tint-in grp-divider" style="text-align:center;">系統保固內案件</th>
+            <th colspan="4" class="grp-divider" style="text-align:center;">系統保固外案件</th>
           </tr>
           <tr>
-            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">部件保固內</th>
-            <th colspan="2" style="text-align:center;">部件保固外</th>
-            <th colspan="2" style="text-align:center;background:var(--success-tint);color:var(--success);">部件保固內</th>
+            <th colspan="2" class="col-tint-in grp-divider" style="text-align:center;">部件保固內</th>
+            <th colspan="2" class="col-tint-out grp-divider" style="text-align:center;">部件保固外</th>
+            <th colspan="2" class="col-tint-in grp-divider" style="text-align:center;">部件保固內</th>
           </tr>
-          <tr><th>件數</th><th>比例</th><th>件數</th><th>比例</th><th>件數</th><th>比例</th></tr>
+          <tr>
+            <th class="col-tint-in grp-divider">件數</th><th class="col-tint-in">比例</th>
+            <th class="col-tint-out grp-divider">件數</th><th class="col-tint-out">比例</th>
+            <th class="col-tint-in grp-divider">件數</th><th class="col-tint-in">比例</th>
+          </tr>
         </thead>
         <tbody>
-          <tr><td class="cell-main">總件數</td><td class="cell-mono" colspan="6" style="background:var(--surface-alt);font-weight:700;">${stats.total}</td></tr>
+          <tr class="row-total"><td class="cell-main">總件數</td><td colspan="6" style="font-size:16px;">${stats.total} <span class="cell-sub" style="font-weight:500;">筆</span></td></tr>
           <tr><td class="cell-main">收費件數／比例</td>${countCells('paid')}</tr>
           <tr><td class="cell-main">未收件數／比例</td>${countCells('unpaid')}</tr>
-          <tr><td class="cell-main">總案件數／比例</td>${totalCountCells}</tr>
-          <tr><td colspan="7" style="padding:4px 0;border-bottom:none;"></td></tr>
+          <tr class="row-total"><td class="cell-main">總案件數／比例</td>${totalCountCells}</tr>
+          <tr class="row-spacer"><td colspan="7"></td></tr>
           <tr><td class="cell-main">收費金額／比例</td>${amtCells('paid')}</tr>
           <tr><td class="cell-main">未收金額／比例</td>${amtCells('unpaid')}</tr>
-          <tr><td class="cell-main">應收金額／比例</td>${totalAmtCells}</tr>
+          <tr class="row-total"><td class="cell-main">應收金額／比例</td>${totalAmtCells}</tr>
         </tbody>
       </table>
     </div>
+  `;
+}
+
+/* 更換部件統計：只顯示品項與使用次數（不含金額），搭配保固統計表並排呈現，如需求截圖版型 */
+function renderPartsCountSideTable(rows){
+  return `
+    <table>
+      <thead><tr><th colspan="2" style="text-align:center;">更換部件統計</th></tr></thead>
+      <tbody>
+        ${rows.length ? rows.map(([name,v],i)=>`
+          <tr class="row-clickable" onclick="app.openRepairItemStationsByIndex(${i})">
+            <td class="cell-main">${esc(name)}</td>
+            <td class="cell-mono" style="text-align:right;">${v.count}</td>
+          </tr>`).join('') : `<tr><td colspan="2"><div class="empty-state" style="padding:14px;">尚無資料</div></td></tr>`}
+      </tbody>
+    </table>
   `;
 }
 
@@ -1193,9 +1253,12 @@ function renderRepairStatsView(){
     </div>
 
     <div class="panel" style="margin-top:16px;">
-      <div class="panel-title-row"><h3>🛡️ 保固／收款統計</h3></div>
-      <p style="font-size:11.5px;color:var(--ink-faint);margin:0;padding:10px 16px 0;">品項一經更換即自動從當次維修日期起算 1 年部件保固；同一站點若在 1 年內再次維修同一品項，即使系統整體已過保固，該品項仍會自動判定為「部件保固內」。</p>
-      ${renderWarrantyStatsTable(computeWarrantyBreakdownStats())}
+      <div class="panel-title-row"><h3>🛡️ 保固／收款統計　×　更換部件統計</h3></div>
+      <p style="font-size:11.5px;color:var(--ink-faint);margin:0;padding:10px 16px 0;">品項一經更換即自動從當次維修日期起算 1 年部件保固；同一站點若在 1 年內再次維修同一品項，即使系統整體已過保固，該品項仍會自動判定為「部件保固內」。點右側品項可查看是哪些站點維修使用。</p>
+      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;padding:12px 16px 16px;">
+        <div style="flex:3;min-width:560px;">${renderWarrantyStatsTable(computeWarrantyBreakdownStats())}</div>
+        <div class="table-wrap" style="flex:1;min-width:200px;margin:0;">${renderPartsCountSideTable(rows)}</div>
+      </div>
     </div>
 
     <div class="panel" style="margin-top:16px;">
