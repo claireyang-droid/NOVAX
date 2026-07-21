@@ -671,6 +671,12 @@ const DEFAULT_REPAIR_ITEM_CATALOG = [
   {name:'加注機不鏽鋼底座', unit:null, price:9000},
 ];
 
+/* 品項別名對照表：維修描述裡如果出現別名（例如「康柏馬達」），
+   系統辨識維修項目時要當成目錄裡的正式品項名稱（例如「COMBO馬達」）處理 */
+const REPAIR_ITEM_ALIASES = {
+  'COMBO馬達': ['康柏馬達','康柏馬逹'],
+};
+
 /* ============ Module configuration ============ */
 /* Each module: fields (for add/edit form) + columns (for table) */
 
@@ -694,7 +700,9 @@ const MODULES = {
       {key:'維修描述', label:'維修處理說明', type:'textarea', full:true},
       {key:'報修日期', label:'報修日期', type:'date', col:1},
       {key:'報修單號', label:'報修單號', type:'text', col:1},
-      {key:'維修人員1名稱', label:'維修人員', type:'text', col:1},
+      {key:'派修', label:'派修', type:'select', options:['今日派修','明日派修'], col:1},
+      {key:'派修日期', label:'派修日期', type:'date', col:1},
+      {key:'維修人員1名稱', label:'維修人員', type:'select', dynamicSource:'engineers', col:1},
       {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
       {key:'收款狀態', label:'收款狀態', type:'select', options:['已收費','未收費'], col:1},
       {key:'出庫保固', label:'保固到期日', type:'date', col:1},
@@ -710,6 +718,9 @@ const MODULES = {
       {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
       {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
       {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
+      {key:'派修', label:'派修', render:r=> r['派修']
+        ? `<div class="cell-plain">${esc(r['派修'])}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
+        : '<span class="cell-sub">尚未派修</span>' },
       {key:'維修人員1名稱', label:'維修人員', render:r=>esc(r['維修人員1名稱']||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
     ]
@@ -1744,6 +1755,8 @@ function openFormModal(key, data, isCreate){
   `);
   if(key==='repairs') updateRepairItemsCalc();
   if(key==='repairs') wireRepairAutoStatus();
+  if(key==='repairs') wireRepairItemAutoDetect();
+  if(key==='repairs') wireRepairDispatch();
 }
 
 /* 自動辨識：維修工單只要「維修描述」與「維修人員」都有填寫，就自動把「維修狀況」改成「已完修」
@@ -1768,6 +1781,55 @@ function wireRepairAutoStatus(){
   const engEl = document.getElementById('fld_維修人員1名稱');
   if(descEl) descEl.addEventListener('input', applyRepairAutoStatus);
   if(engEl) engEl.addEventListener('input', applyRepairAutoStatus);
+}
+
+/* 自動辨識：輸入「維修描述」時，比對文字裡有沒有提到維修項目目錄中的品項名稱，
+   有提到就自動幫該品項打勾（只會勾選，不會自動取消，避免跟使用者手動操作打架） */
+function detectRepairItemsFromDescription(){
+  const descEl = document.getElementById('fld_維修描述');
+  if(!descEl) return;
+  const text = descEl.value || '';
+  if(!text.trim()) return;
+  const catalog = state.repairItemCatalog || [];
+  let matchedNames = [];
+  catalog.forEach((it, idx)=>{
+    if(!it.name) return;
+    const names = [it.name, ...(REPAIR_ITEM_ALIASES[it.name]||[])];
+    if(!names.some(n=>text.includes(n))) return;
+    const chk = document.getElementById('ri_chk_'+idx);
+    if(!chk || chk.checked) return;
+    chk.checked = true;
+    const qtyEl = document.getElementById('ri_qty_'+idx);
+    if(qtyEl && !qtyEl.value) qtyEl.value = 1;
+    matchedNames.push(it.name);
+  });
+  if(matchedNames.length){
+    updateRepairItemsCalc();
+    showToast(`已根據維修描述自動勾選：${matchedNames.join('、')}，請確認數量與收費是否正確`);
+  }
+}
+function wireRepairItemAutoDetect(){
+  const descEl = document.getElementById('fld_維修描述');
+  if(descEl) descEl.addEventListener('input', detectRepairItemsFromDescription);
+}
+
+/* 派修：選「今日派修」或「明日派修」時，自動把「派修日期」欄位帶入對應的日期（今天或明天），
+   使用者仍可在欄位中手動調整 */
+function applyRepairDispatchDate(){
+  const dispatchEl = document.getElementById('fld_派修');
+  const dateEl = document.getElementById('fld_派修日期');
+  if(!dispatchEl || !dateEl) return;
+  if(dispatchEl.value==='今日派修'){
+    dateEl.value = todayISO();
+  } else if(dispatchEl.value==='明日派修'){
+    const d = new Date();
+    d.setDate(d.getDate()+1);
+    dateEl.value = d.toISOString().slice(0,10);
+  }
+}
+function wireRepairDispatch(){
+  const dispatchEl = document.getElementById('fld_派修');
+  if(dispatchEl) dispatchEl.addEventListener('change', applyRepairDispatchDate);
 }
 
 async function saveForm(key, id){
@@ -1979,7 +2041,36 @@ function renderOverviewTab(){
     </div>
   `;
 }
-/* ============ Excel Import (auto column detection) ============ */
+
+/* ============ 近期安排：自動彙整已標記「今日派修」／「明日派修」的維修工單 ============ */
+function renderScheduleTab(){
+  const todayList = state.repairs.filter(r=>r['派修']==='今日派修');
+  const tmrList = state.repairs.filter(r=>r['派修']==='明日派修');
+  const sortByEngineer = (a,b)=> String(a['維修人員1名稱']||'').localeCompare(String(b['維修人員1名稱']||''), 'zh-Hant');
+  const renderRow = r => `
+    <div class="mini-row" style="cursor:pointer;" onclick="app.openDetail('repairs','${r.id}')">
+      <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
+      <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(r['維修人員1名稱']||'尚未指派人員')}</div></div>
+    </div>`;
+  return `
+    <div class="section-head" style="margin-top:0;">
+      <h2>📅 近期安排</h2>
+      <span class="hint">維修工單裡標記「今日派修」或「明日派修」的單，會自動彙整到這裡</span>
+    </div>
+    <div class="section-head"><h2 style="font-size:15px;">🔴 今日派修（${todayList.length} 筆）</h2></div>
+    <div class="panel">
+      <div class="mini-list">
+        ${todayList.length ? [...todayList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有標記今日派修的工單</div>'}
+      </div>
+    </div>
+    <div class="section-head"><h2 style="font-size:15px;">🟡 明日派修（${tmrList.length} 筆）</h2></div>
+    <div class="panel">
+      <div class="mini-list">
+        ${tmrList.length ? [...tmrList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有標記明日派修的工單</div>'}
+      </div>
+    </div>
+  `;
+}
 
 const FIELD_ALIASES = {
   repairs: {
@@ -2452,6 +2543,7 @@ function renderSettingsTab(){
 const TAB_LIST = [
   {key:'overview', label:'總覽', icon:'📊'},
   {key:'repairs', label:'維修工單', icon:'🔧'},
+  {key:'schedule', label:'近期安排', icon:'📅'},
   {key:'tanks', label:'桶槽清洗', icon:'🛢️'},
   {key:'installs', label:'裝機管理', icon:'🏗️'},
   {key:'trucks', label:'貨車登記', icon:'🚚'},
@@ -2471,6 +2563,7 @@ function renderContent(){
   let html = '';
   if(state.activeTab==='overview') html = renderOverviewTab();
   else if(state.activeTab==='settings') html = renderSettingsTab();
+  else if(state.activeTab==='schedule') html = renderScheduleTab();
   else if(MODULES[state.activeTab]) html = renderModuleTab(state.activeTab);
   el.innerHTML = html;
 
