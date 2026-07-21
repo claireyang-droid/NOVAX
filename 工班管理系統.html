@@ -625,6 +625,19 @@ function todayISO(){
   const d = new Date();
   return d.toISOString().slice(0,10);
 }
+function tomorrowISO(){
+  const d = new Date();
+  d.setDate(d.getDate()+1);
+  return d.toISOString().slice(0,10);
+}
+/* 依「派修日期」跟今天／明天比對，回傳好讀的相對標籤（今日派修／明日派修／實際日期） */
+function dispatchDayLabel(dateStr){
+  const d = fmtDate(dateStr);
+  if(!d) return '尚未設定日期';
+  if(d===todayISO()) return '今日派修';
+  if(d===tomorrowISO()) return '明日派修';
+  return d + ' 派修';
+}
 
 /* generic search across an object's string values */
 function matchesSearch(obj, q){
@@ -700,7 +713,7 @@ const MODULES = {
       {key:'維修描述', label:'維修處理說明', type:'textarea', full:true},
       {key:'報修日期', label:'報修日期', type:'date', col:1},
       {key:'報修單號', label:'報修單號', type:'text', col:1},
-      {key:'派修', label:'派修', type:'select', options:['今日派修','明日派修'], col:1},
+      {key:'派修', label:'派修', type:'select', options:['已派修'], col:1},
       {key:'派修日期', label:'派修日期', type:'date', col:1},
       {key:'維修人員1名稱', label:'維修人員', type:'select', dynamicSource:'engineers', col:1},
       {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
@@ -718,8 +731,8 @@ const MODULES = {
       {key:'客戶名稱', label:'客戶 / 站點', render:r=>`<div class="cell-main">${esc(r['客戶名稱']||'—')}</div><div class="cell-sub">${esc(truncate(r['地址']||'',36))}</div>`},
       {key:'狀況描述', label:'狀況描述', render:r=>`<div class="cell-plain">${esc(truncate(r['狀況描述']||'',40))}</div>`},
       {key:'報修日期', label:'報修日期', render:r=>`<span class="cell-mono">${esc(fmtDate(r['報修日期']))}</span>`},
-      {key:'派修', label:'派修', render:r=> r['派修']
-        ? `<div class="cell-plain">${esc(r['派修'])}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
+      {key:'派修', label:'派修', render:r=> r['派修']==='已派修'
+        ? `<div class="cell-plain">${esc(dispatchDayLabel(r['派修日期']))}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
         : '<span class="cell-sub">尚未派修</span>' },
       {key:'維修人員1名稱', label:'維修人員', render:r=>esc(r['維修人員1名稱']||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
@@ -1813,18 +1826,14 @@ function wireRepairItemAutoDetect(){
   if(descEl) descEl.addEventListener('input', detectRepairItemsFromDescription);
 }
 
-/* 派修：選「今日派修」或「明日派修」時，自動把「派修日期」欄位帶入對應的日期（今天或明天），
-   使用者仍可在欄位中手動調整 */
+/* 派修：勾選「已派修」時，若「派修日期」尚未填寫，預設帶入今天日期（使用者可自行改成其他日期，
+   之後在「近期安排」會依這個日期自動歸類成今日派修／明日派修） */
 function applyRepairDispatchDate(){
   const dispatchEl = document.getElementById('fld_派修');
   const dateEl = document.getElementById('fld_派修日期');
   if(!dispatchEl || !dateEl) return;
-  if(dispatchEl.value==='今日派修'){
+  if(dispatchEl.value==='已派修' && !dateEl.value){
     dateEl.value = todayISO();
-  } else if(dispatchEl.value==='明日派修'){
-    const d = new Date();
-    d.setDate(d.getDate()+1);
-    dateEl.value = d.toISOString().slice(0,10);
   }
 }
 function wireRepairDispatch(){
@@ -2042,33 +2051,50 @@ function renderOverviewTab(){
   `;
 }
 
-/* ============ 近期安排：自動彙整已標記「今日派修」／「明日派修」的維修工單 ============ */
+/* ============ 近期安排：自動彙整已標記「已派修」的維修工單，依「派修日期」分類 ============ */
 function renderScheduleTab(){
-  const todayList = state.repairs.filter(r=>r['派修']==='今日派修');
-  const tmrList = state.repairs.filter(r=>r['派修']==='明日派修');
+  const dispatched = state.repairs.filter(r=>r['派修']==='已派修' && r['派修日期']);
+  const todayList = dispatched.filter(r=>fmtDate(r['派修日期'])===todayISO());
+  const tmrList = dispatched.filter(r=>fmtDate(r['派修日期'])===tomorrowISO());
+  const otherList = dispatched.filter(r=>{
+    const d = fmtDate(r['派修日期']);
+    return d!==todayISO() && d!==tomorrowISO();
+  }).sort((a,b)=> fmtDate(a['派修日期']).localeCompare(fmtDate(b['派修日期'])));
   const sortByEngineer = (a,b)=> String(a['維修人員1名稱']||'').localeCompare(String(b['維修人員1名稱']||''), 'zh-Hant');
   const renderRow = r => `
     <div class="mini-row" style="cursor:pointer;" onclick="app.openDetail('repairs','${r.id}')">
       <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
       <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(r['維修人員1名稱']||'尚未指派人員')}</div></div>
     </div>`;
+  const renderOtherRow = r => `
+    <div class="mini-row" style="cursor:pointer;" onclick="app.openDetail('repairs','${r.id}')">
+      <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
+      <div style="text-align:right;"><div class="s cell-mono">${esc(fmtDate(r['派修日期']))}</div><div class="s">👷 ${esc(r['維修人員1名稱']||'尚未指派人員')}</div></div>
+    </div>`;
   return `
     <div class="section-head" style="margin-top:0;">
       <h2>📅 近期安排</h2>
-      <span class="hint">維修工單裡標記「今日派修」或「明日派修」的單，會自動彙整到這裡</span>
+      <span class="hint">維修工單裡標記「已派修」的單，會依「派修日期」自動歸類到這裡</span>
     </div>
     <div class="section-head"><h2 style="font-size:15px;">🔴 今日派修（${todayList.length} 筆）</h2></div>
     <div class="panel">
       <div class="mini-list">
-        ${todayList.length ? [...todayList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有標記今日派修的工單</div>'}
+        ${todayList.length ? [...todayList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有今日派修的工單</div>'}
       </div>
     </div>
     <div class="section-head"><h2 style="font-size:15px;">🟡 明日派修（${tmrList.length} 筆）</h2></div>
     <div class="panel">
       <div class="mini-list">
-        ${tmrList.length ? [...tmrList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有標記明日派修的工單</div>'}
+        ${tmrList.length ? [...tmrList].sort(sortByEngineer).map(renderRow).join('') : '<div class="empty-state">目前沒有明日派修的工單</div>'}
       </div>
     </div>
+    ${otherList.length ? `
+    <div class="section-head"><h2 style="font-size:15px;">🔵 其他已排定日期（${otherList.length} 筆）</h2></div>
+    <div class="panel">
+      <div class="mini-list">
+        ${otherList.map(renderOtherRow).join('')}
+      </div>
+    </div>` : ''}
   `;
 }
 
