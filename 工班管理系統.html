@@ -630,6 +630,11 @@ function tomorrowISO(){
   d.setDate(d.getDate()+1);
   return d.toISOString().slice(0,10);
 }
+/* 「維修人員1名稱」欄位現在可能是陣列（多選最多2位）或舊資料的純文字，統一轉成顯示用文字 */
+function engineerListText(val){
+  if(Array.isArray(val)) return val.filter(Boolean).join('、');
+  return (val||'').toString();
+}
 /* 依「派修日期」跟今天／明天比對，回傳好讀的相對標籤（今日派修／明日派修／實際日期） */
 function dispatchDayLabel(dateStr){
   const d = fmtDate(dateStr);
@@ -715,7 +720,7 @@ const MODULES = {
       {key:'報修單號', label:'報修單號', type:'text', col:1},
       {key:'派修', label:'派修', type:'select', options:['已派修'], col:1},
       {key:'派修日期', label:'派修日期', type:'date', col:1},
-      {key:'維修人員1名稱', label:'維修人員', type:'select', dynamicSource:'engineers', col:1},
+      {key:'維修人員1名稱', label:'維修人員（最多選 2 位）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true},
       {key:'維修金額', label:'維修金額 (NT$)', type:'number', col:1},
       {key:'收款狀態', label:'收款狀態', type:'select', options:['已收費','未收費'], col:1},
       {key:'出庫保固', label:'保固到期日', type:'date', col:1},
@@ -734,7 +739,7 @@ const MODULES = {
       {key:'派修', label:'派修', render:r=> r['派修']==='已派修'
         ? `<div class="cell-plain">${esc(dispatchDayLabel(r['派修日期']))}</div><div class="cell-sub">${esc(fmtDate(r['派修日期']))}</div>`
         : '<span class="cell-sub">尚未派修</span>' },
-      {key:'維修人員1名稱', label:'維修人員', render:r=>esc(r['維修人員1名稱']||'—')},
+      {key:'維修人員1名稱', label:'維修人員', render:r=>esc(engineerListText(r['維修人員1名稱'])||'—')},
       {key:'使用類別', label:'保固', render:r=>esc(r['使用類別']||'—')},
     ]
   },
@@ -1654,8 +1659,11 @@ function renderField(f, data){
     const opts = f.dynamicSource ? (state[f.dynamicSource]||[]) : f.options;
     const selected = Array.isArray(val) ? val : (val ? [val] : []);
     const limitAttr = f.maxSelect ? ` onchange="app.enforceCheckboxLimit(this,${f.maxSelect})"` : '';
+    const extraVals = selected.filter(v=>v && !opts.includes(v));
     inputHTML = `<div class="checkbox-row">${opts.map(o=>`
       <label><input type="checkbox" value="${esc(o)}" data-multi="${f.key}" ${selected.includes(o)?'checked':''}${limitAttr}> ${esc(o)}</label>
+    `).join('')}${extraVals.map(v=>`
+      <label><input type="checkbox" value="${esc(v)}" data-multi="${f.key}" checked${limitAttr}> ${esc(v)}（匯入值）</label>
     `).join('')}</div>`;
   } else {
     inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':'text'))}" id="fld_${f.key}" value="${esc(val||'')}">`;
@@ -1776,11 +1784,10 @@ function openFormModal(key, data, isCreate){
    （不論目前狀況是什麼，包含轉嘉油、轉尚恩等自訂狀況也會被覆蓋） */
 function applyRepairAutoStatus(){
   const descEl = document.getElementById('fld_維修描述');
-  const engEl = document.getElementById('fld_維修人員1名稱');
   const statusEl = document.getElementById('fld_維修狀況');
-  if(!descEl || !engEl || !statusEl) return;
+  if(!descEl || !statusEl) return;
   const hasDesc = descEl.value.trim();
-  const hasEngineer = engEl.value.trim();
+  const hasEngineer = document.querySelectorAll('[data-multi="維修人員1名稱"]:checked').length > 0;
   if(hasDesc && hasEngineer && statusEl.value!=='已完修'){
     const hasOption = Array.from(statusEl.options).some(o=>o.value==='已完修');
     if(hasOption){
@@ -1791,9 +1798,8 @@ function applyRepairAutoStatus(){
 }
 function wireRepairAutoStatus(){
   const descEl = document.getElementById('fld_維修描述');
-  const engEl = document.getElementById('fld_維修人員1名稱');
   if(descEl) descEl.addEventListener('input', applyRepairAutoStatus);
-  if(engEl) engEl.addEventListener('input', applyRepairAutoStatus);
+  document.querySelectorAll('[data-multi="維修人員1名稱"]').forEach(cb=>cb.addEventListener('change', applyRepairAutoStatus));
 }
 
 /* 自動辨識：輸入「維修描述」時，比對文字裡有沒有提到維修項目目錄中的品項名稱，
@@ -2060,16 +2066,16 @@ function renderScheduleTab(){
     const d = fmtDate(r['派修日期']);
     return d!==todayISO() && d!==tomorrowISO();
   }).sort((a,b)=> fmtDate(a['派修日期']).localeCompare(fmtDate(b['派修日期'])));
-  const sortByEngineer = (a,b)=> String(a['維修人員1名稱']||'').localeCompare(String(b['維修人員1名稱']||''), 'zh-Hant');
+  const sortByEngineer = (a,b)=> engineerListText(a['維修人員1名稱']).localeCompare(engineerListText(b['維修人員1名稱']), 'zh-Hant');
   const renderRow = r => `
     <div class="mini-row" style="cursor:pointer;" onclick="app.openDetail('repairs','${r.id}')">
       <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
-      <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(r['維修人員1名稱']||'尚未指派人員')}</div></div>
+      <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(engineerListText(r['維修人員1名稱'])||'尚未指派人員')}</div></div>
     </div>`;
   const renderOtherRow = r => `
     <div class="mini-row" style="cursor:pointer;" onclick="app.openDetail('repairs','${r.id}')">
       <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
-      <div style="text-align:right;"><div class="s cell-mono">${esc(fmtDate(r['派修日期']))}</div><div class="s">👷 ${esc(r['維修人員1名稱']||'尚未指派人員')}</div></div>
+      <div style="text-align:right;"><div class="s cell-mono">${esc(fmtDate(r['派修日期']))}</div><div class="s">👷 ${esc(engineerListText(r['維修人員1名稱'])||'尚未指派人員')}</div></div>
     </div>`;
   return `
     <div class="section-head" style="margin-top:0;">
@@ -2164,7 +2170,7 @@ function openImport(key){
 /* 共用：物件形式（表單存檔／匯入資料）套用自動辨識已完修規則 */
 function applyRepairAutoStatusToObj(obj){
   const hasDesc = (obj['維修描述']||'').trim();
-  const hasEngineer = (obj['維修人員1名稱']||'').trim();
+  const hasEngineer = engineerListText(obj['維修人員1名稱']).trim();
   if(hasDesc && hasEngineer && (obj['維修狀況']||'').trim()!=='已完修' && (state.repairStatuses||[]).includes('已完修')){
     obj['維修狀況'] = '已完修';
   }
