@@ -195,6 +195,8 @@ tbody tr:hover{background:#F7F9FA;}
 .cell-mono{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
 .cell-mono.cell-main{font-size:13px;color:var(--ink);}
 .cell-wrap{white-space:normal;word-break:break-word;overflow-wrap:anywhere;max-width:200px;display:inline-block;}
+.tag-row{display:flex;flex-wrap:wrap;gap:5px;}
+.tag-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:6px;background:var(--neutral-tint);border:1px solid var(--border);color:var(--ink);font-size:12px;font-weight:500;white-space:nowrap;line-height:1.6;}
 .row-actions{display:flex;gap:6px;white-space:nowrap;}
 .empty-state{padding:48px 20px;text-align:center;color:var(--ink-faint);}
 .empty-state .emoji{font-size:30px;display:block;margin-bottom:8px;}
@@ -749,10 +751,16 @@ const MODULES = {
     ],
     columns:[
       {key:'車號', label:'車號', render:r=>`<span class="cell-mono cell-main">${esc(r['車號']||'—')}</span>`},
-      {key:'用途', label:'用途', render:r=>`<span class="cell-plain cell-wrap">${esc((Array.isArray(r['用途'])?r['用途']:[]).join('、')||'—')}</span>`},
+      {key:'用途', label:'用途', render:r=>{
+        const items = Array.isArray(r['用途']) ? r['用途'] : [];
+        return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '—';
+      }},
       {key:'領用', label:'領用', render:r=>`<span class="cell-mono">${esc(fmtDate(r['領用日期']))} ${esc(r['領用時間']||'')}</span>`},
       {key:'歸還', label:'歸還／狀態', render:r=> r['歸還日期'] ? `<span class="cell-mono">${esc(fmtDate(r['歸還日期']))} ${esc(r['歸還時間']||'')}</span>` : badge('借出中')},
-      {key:'領用人', label:'領用人', render:r=>`<span class="cell-plain cell-wrap">${esc((Array.isArray(r['領用人'])?r['領用人']:(r['領用人']?[r['領用人']]:[])).join('、')||'—')}</span>`},
+      {key:'領用人', label:'領用人', render:r=>{
+        const items = Array.isArray(r['領用人']) ? r['領用人'] : (r['領用人'] ? [r['領用人']] : []);
+        return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '—';
+      }},
       {key:'保管人', label:'保管人', render:r=>`<span class="cell-plain cell-wrap">${esc(r['保管人']||'—')}</span>`},
     ]
   }
@@ -877,34 +885,31 @@ function computeTankStats(){
 
 function renderTanksStatsPanel(){
   const { counts, unset, total } = computeTankStats();
-  const slices = Object.entries(counts).map(([name,value])=>({name, value, color: TANK_STATUS_COLORS[name] || '#7A8B98'}));
-  if(unset>0) slices.push({name:'未設定', value:unset, color:'#B7C1C8'});
+  const cards = Object.entries(counts).map(([name,value])=>({name, value, color: TANK_STATUS_COLORS[name] || '#7A8B98'}));
+  if(unset>0) cards.push({name:'未設定', value:unset, color:'#B7C1C8'});
 
   return `
     <div class="section-head" style="margin-top:0;">
       <h2>🛢️ 桶槽清洗統計</h2>
       <span class="hint">共 ${total} 個站點</span>
     </div>
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>清洗狀態</th><th>站點數</th><th>佔比</th></tr></thead>
-          <tbody>
-            ${slices.length ? slices.map(s=>`
-              <tr>
-                <td class="cell-main">${esc(s.name)}</td>
-                <td class="cell-mono">${s.value}</td>
-                <td class="cell-mono">${total ? (s.value/total*100).toFixed(1) : '0.0'}%</td>
-              </tr>`).join('') : `<tr><td colspan="3"><div class="empty-state"><span class="emoji">🛢️</span>尚無站點資料</div></td></tr>`}
-          </tbody>
-          ${slices.length ? `<tfoot><tr><td class="cell-main">總計</td><td class="cell-mono">${total}</td><td class="cell-mono">100%</td></tr></tfoot>` : ''}
-        </table>
+    <div class="stat-grid" style="margin-bottom:16px;">
+      <div class="stat-card">
+        <div class="stat-label">🧮 站點總數</div>
+        <div class="stat-value">${total}<small> 站</small></div>
       </div>
+      ${cards.map(c=>`
+        <div class="stat-card" style="border-left:4px solid ${c.color};">
+          <div class="stat-label"><span class="pie-dot" style="background:${c.color}"></span>${esc(c.name)}</div>
+          <div class="stat-value">${c.value}<small> 站</small></div>
+          <div class="stat-foot">佔比 ${total ? (c.value/total*100).toFixed(1) : '0.0'}%</div>
+        </div>
+      `).join('')}
     </div>
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-title-row"><h3>🥧 清洗狀態佔比</h3></div>
       <div class="pie-panel">
-        ${total>0 ? renderGenericPie(slices, ' 個') : `<div class="empty-state" style="padding:12px 0;"><span class="emoji">🥧</span>尚無可繪製圖表的資料</div>`}
+        ${total>0 ? renderGenericPie(cards, ' 站') : `<div class="empty-state" style="padding:12px 0;"><span class="emoji">🥧</span>尚無可繪製圖表的資料</div>`}
       </div>
     </div>
   `;
