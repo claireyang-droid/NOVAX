@@ -285,6 +285,7 @@ tbody tr:hover{background:#F7F9FA;}
 .repair-items-table td{padding:6px 8px;border-top:1px solid var(--border);vertical-align:middle;}
 .repair-items-table input[type="number"], .repair-items-table input[type="text"]{padding:4px 6px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;}
 .repair-items-table input[type="checkbox"]{width:16px;height:16px;}
+.ri-bill-select{padding:4px 6px;font-size:12.5px;border:1px solid var(--border);border-radius:6px;background:var(--bg);}
 .repair-items-total{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface-alt);font-size:13px;}
 .repair-items-detail{display:flex;flex-direction:column;gap:4px;}
 .repair-items-detail-row{display:grid;grid-template-columns:1fr auto auto;gap:14px;font-size:13px;}
@@ -843,7 +844,7 @@ function computeRepairStats(){
       if(!agg[it.name]) agg[it.name] = { count:0, qtySum:0, amountSum:0, unit:it.unit };
       agg[it.name].count += 1;
       agg[it.name].qtySum += (it.qty||0);
-      agg[it.name].amountSum += (it.subtotal || ((it.qty||0)*(it.unitPrice||0)) || 0);
+      if(it.billable!==false) agg[it.name].amountSum += (it.subtotal || ((it.qty||0)*(it.unitPrice||0)) || 0);
     });
   });
   const rows = Object.entries(agg).sort((a,b)=>b[1].count-a[1].count);
@@ -1480,6 +1481,7 @@ function renderRepairItemsSection(data){
     const match = existing.find(x=>x.name===it.name && !x.isOther);
     const checked = !!match;
     const qtyVal = match ? match.qty : (it.unit ? '' : 1);
+    const billable = match ? (match.billable!==false) : true;
     const info = partWarrantyStatusAt(stKey, it.name, atDate, data.id, log);
     const warrantyBadge = info.status==='in'
       ? `<span class="tag-chip" style="background:var(--success-tint);color:var(--success);border-color:var(--success);white-space:nowrap;">🛡️ 保固內至 ${esc(info.expiry)}</span>`
@@ -1492,6 +1494,12 @@ function renderRepairItemsSection(data){
       <td class="cell-mono">$${it.price}${it.unit?('/'+esc(it.unit)):''}</td>
       <td><input type="number" min="0" step="0.1" style="width:74px;" id="ri_qty_${idx}" value="${esc(qtyVal)}" oninput="app.updateRepairItemsCalc()" placeholder="${it.unit?esc(it.unit):'數量'}"></td>
       <td class="cell-mono" id="ri_sub_${idx}">$0</td>
+      <td>
+        <select class="ri-bill-select" id="ri_bill_${idx}" onchange="app.updateRepairItemsCalc()">
+          <option value="1" ${billable?'selected':''}>收費</option>
+          <option value="0" ${!billable?'selected':''}>不收費</option>
+        </select>
+      </td>
       <td>${warrantyBadge}</td>
     </tr>`;
   }).join('');
@@ -1501,7 +1509,7 @@ function renderRepairItemsSection(data){
       <p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 6px;">勾選並更換的品項，會自動從本次維修日期起算 1 年部件保固；同站點下次維修同一品項若仍在保固期內會自動顯示「保固內」。</p>
       <div class="repair-items-wrap">
         <table class="repair-items-table">
-          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th><th>部件保固狀態</th></tr></thead>
+          <thead><tr><th></th><th>維修項目</th><th>單價</th><th>數量</th><th>小計</th><th>收費</th><th>部件保固狀態</th></tr></thead>
           <tbody>
             ${rowsHTML}
             <tr>
@@ -1510,12 +1518,19 @@ function renderRepairItemsSection(data){
               <td><input type="number" min="0" id="ri_other_price" placeholder="單價" value="${esc(otherItem?otherItem.unitPrice:'')}" style="width:78px;" oninput="app.updateRepairItemsCalc()"></td>
               <td><input type="number" min="0" step="0.1" id="ri_other_qty" placeholder="數量" value="${esc(otherItem?otherItem.qty:1)}" style="width:74px;" oninput="app.updateRepairItemsCalc()"></td>
               <td class="cell-mono" id="ri_sub_other">$0</td>
+              <td>
+                <select class="ri-bill-select" id="ri_bill_other" onchange="app.updateRepairItemsCalc()">
+                  <option value="1" ${(!otherItem || otherItem.billable!==false)?'selected':''}>收費</option>
+                  <option value="0" ${(otherItem && otherItem.billable===false)?'selected':''}>不收費</option>
+                </select>
+              </td>
               <td class="cell-sub">—（非目錄品項不列入保固追蹤）</td>
             </tr>
           </tbody>
         </table>
         <div class="repair-items-total">
           項目小計合計：<strong id="ri_total">$0</strong>
+          <span id="ri_free_note" class="cell-sub" style="display:none;"></span>
           <button type="button" class="btn btn-ghost btn-sm" onclick="app.applyRepairItemsTotal()">帶入維修金額</button>
         </div>
       </div>
@@ -1525,29 +1540,39 @@ function renderRepairItemsSection(data){
 
 function updateRepairItemsCalc(){
   let total = 0;
+  let hasFree = false;
   (state.repairItemCatalog||[]).forEach((it,idx)=>{
     const chk = document.getElementById('ri_chk_'+idx);
     const qtyEl = document.getElementById('ri_qty_'+idx);
     const subEl = document.getElementById('ri_sub_'+idx);
+    const billEl = document.getElementById('ri_bill_'+idx);
     if(!chk || !qtyEl || !subEl) return;
     const qty = parseFloat(qtyEl.value)||0;
+    const billable = !billEl || billEl.value!=='0';
     const sub = chk.checked ? qty*it.price : 0;
-    subEl.textContent = '$'+sub.toLocaleString();
-    if(chk.checked) total += sub;
+    subEl.textContent = '$'+sub.toLocaleString() + (chk.checked && !billable ? '（不收費）' : '');
+    if(chk.checked && billable) total += sub;
+    if(chk.checked && !billable) hasFree = true;
   });
   const otherChk = document.getElementById('ri_chk_other');
   const otherPriceEl = document.getElementById('ri_other_price');
   const otherQtyEl = document.getElementById('ri_other_qty');
   const otherSubEl = document.getElementById('ri_sub_other');
+  const otherBillEl = document.getElementById('ri_bill_other');
   if(otherChk && otherPriceEl && otherQtyEl && otherSubEl){
     const price = parseFloat(otherPriceEl.value)||0;
     const qty = parseFloat(otherQtyEl.value)||0;
+    const billable = !otherBillEl || otherBillEl.value!=='0';
     const sub = otherChk.checked ? qty*price : 0;
-    otherSubEl.textContent = '$'+sub.toLocaleString();
-    if(otherChk.checked) total += sub;
+    otherSubEl.textContent = '$'+sub.toLocaleString() + (otherChk.checked && !billable ? '（不收費）' : '');
+    if(otherChk.checked && billable) total += sub;
+    if(otherChk.checked && !billable) hasFree = true;
   }
   const totalEl = document.getElementById('ri_total');
   if(totalEl) totalEl.textContent = '$'+total.toLocaleString();
+  const freeNoteEl = document.getElementById('ri_free_note');
+  if(freeNoteEl) freeNoteEl.style.display = hasFree ? '' : 'none';
+  if(freeNoteEl && hasFree) freeNoteEl.textContent = '（不含不收費項目金額）';
 }
 
 function applyRepairItemsTotal(){
@@ -1565,8 +1590,10 @@ function collectRepairItems(){
     const chk = document.getElementById('ri_chk_'+idx);
     if(chk && chk.checked){
       const qtyEl = document.getElementById('ri_qty_'+idx);
+      const billEl = document.getElementById('ri_bill_'+idx);
       const qty = parseFloat(qtyEl.value)||0;
-      items.push({name:it.name, unit:it.unit, unitPrice:it.price, qty, subtotal:+(qty*it.price).toFixed(2)});
+      const billable = !billEl || billEl.value!=='0';
+      items.push({name:it.name, unit:it.unit, unitPrice:it.price, qty, subtotal:+(qty*it.price).toFixed(2), billable});
     }
   });
   const otherChk = document.getElementById('ri_chk_other');
@@ -1574,10 +1601,12 @@ function collectRepairItems(){
     const nameEl = document.getElementById('ri_other_name');
     const priceEl = document.getElementById('ri_other_price');
     const qtyEl = document.getElementById('ri_other_qty');
+    const billEl = document.getElementById('ri_bill_other');
     const name = (nameEl.value||'其他').trim() || '其他';
     const unitPrice = parseFloat(priceEl.value)||0;
     const qty = parseFloat(qtyEl.value)||1;
-    items.push({name, unit:null, unitPrice, qty, subtotal:+(qty*unitPrice).toFixed(2), isOther:true});
+    const billable = !billEl || billEl.value!=='0';
+    items.push({name, unit:null, unitPrice, qty, subtotal:+(qty*unitPrice).toFixed(2), isOther:true, billable});
   }
   return items;
 }
@@ -1662,9 +1691,9 @@ function openDetail(key, id){
   let repairItemsHTML = '';
   if(key==='repairs'){
     const items = Array.isArray(item['維修項目']) ? item['維修項目'] : [];
-    const total = items.reduce((s,it)=>s+(it.subtotal||0),0);
+    const total = items.reduce((s,it)=>s+(it.billable===false ? 0 : (it.subtotal||0)),0);
     repairItemsHTML = `<div class="detail-row"><div class="detail-label">本次使用項目</div><div class="detail-value">${
-      items.length ? `<div class="repair-items-detail">${items.map(it=>`<div class="repair-items-detail-row"><span>${esc(it.name)}</span><span>${it.qty}${it.unit?esc(it.unit):''} × $${it.unitPrice}</span><span class="cell-mono">$${(it.subtotal||0).toLocaleString()}</span></div>`).join('')}<div class="repair-items-detail-row" style="font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><span>合計</span><span></span><span class="cell-mono">$${total.toLocaleString()}</span></div></div>` : '<span class="detail-empty">—</span>'
+      items.length ? `<div class="repair-items-detail">${items.map(it=>`<div class="repair-items-detail-row"><span>${esc(it.name)}${it.billable===false?' <span class="cell-sub">（不收費）</span>':''}</span><span>${it.qty}${it.unit?esc(it.unit):''} × $${it.unitPrice}</span><span class="cell-mono">$${(it.subtotal||0).toLocaleString()}</span></div>`).join('')}<div class="repair-items-detail-row" style="font-weight:700;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;"><span>合計（收費項目）</span><span></span><span class="cell-mono">$${total.toLocaleString()}</span></div></div>` : '<span class="detail-empty">—</span>'
     }</div></div>`;
   }
 
