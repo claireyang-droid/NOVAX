@@ -1756,13 +1756,7 @@ async function saveForm(key, id){
   if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
 
   /* 保險機制：存檔時再次確認，若維修描述與維修人員都有值就自動設為已完修（覆蓋原本狀況） */
-  if(key==='repairs'){
-    const hasDesc = (formData['維修描述']||'').trim();
-    const hasEngineer = (formData['維修人員1名稱']||'').trim();
-    if(hasDesc && hasEngineer && (formData['維修狀況']||'').trim()!=='已完修'){
-      if((state.repairStatuses||[]).includes('已完修')) formData['維修狀況'] = '已完修';
-    }
-  }
+  if(key==='repairs') applyRepairAutoStatusToObj(formData);
 
   /* 維修工單新增或編輯時，只要報修單號跟其他工單相同，就跳出提醒（可選擇仍要繼續） */
   if(key==='repairs'){
@@ -2021,6 +2015,16 @@ function openImport(key){
   input.click();
 }
 
+/* 共用：物件形式（表單存檔／匯入資料）套用自動辨識已完修規則 */
+function applyRepairAutoStatusToObj(obj){
+  const hasDesc = (obj['維修描述']||'').trim();
+  const hasEngineer = (obj['維修人員1名稱']||'').trim();
+  if(hasDesc && hasEngineer && (obj['維修狀況']||'').trim()!=='已完修' && (state.repairStatuses||[]).includes('已完修')){
+    obj['維修狀況'] = '已完修';
+  }
+  return obj;
+}
+
 function wireImportInput(){
   const input = document.getElementById('importFileInput');
   input.addEventListener('change', async (e)=>{
@@ -2145,6 +2149,10 @@ async function confirmImport(){
     });
     if(hasValue) rowObjs.push(obj);
   });
+
+  /* 匯入的維修工單也套用自動辨識：維修描述與維修人員都有值就自動設為已完修
+     （rowObjs 的物件參照後續也會被 dupPairs/freshRows 使用，這裡改好即可套用到覆蓋與新增） */
+  if(key==='repairs') rowObjs.forEach(applyRepairAutoStatusToObj);
 
   /* 維修工單匯入時，依「報修單號」比對是否已存在相同單號的既有工單，若有先詢問要覆蓋還是略過 */
   if(key==='repairs' && Object.values(colToField).includes('報修單號')){
