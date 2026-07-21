@@ -179,6 +179,15 @@ main{flex:1;max-width:1180px;width:100%;margin:0 auto;padding:22px 20px 60px;}
 
 /* ---------- Table ---------- */
 .table-wrap{overflow-x:auto;}
+.pagination-bar{
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  padding:12px 16px;border-top:1px solid var(--border);
+  font-size:12.5px;color:var(--ink-soft);
+}
+.pagination-bar select{border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--bg);font-size:12.5px;}
+.pagination-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.pagination-nav .hint{font-size:12.5px;color:var(--ink-soft);white-space:nowrap;}
+.pagination-nav button:disabled{opacity:.45;cursor:default;}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 thead th{
   text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;
@@ -282,6 +291,27 @@ tbody tr:hover{background:#F7F9FA;}
 .checkbox-row{display:flex;flex-wrap:wrap;gap:8px 14px;padding-top:2px;}
 .checkbox-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink);white-space:nowrap;flex:0 0 auto;}
 .checkbox-row input[type="checkbox"]{flex:0 0 auto;}
+
+/* 統一自訂 checkbox 外觀：避免部分行動瀏覽器（如 iOS Safari）用原生大尺寸方框渲染，跟旁邊文字重疊 */
+input[type="checkbox"]{
+  -webkit-appearance:none;-moz-appearance:none;appearance:none;
+  width:18px;height:18px;min-width:18px;min-height:18px;
+  border:1.5px solid var(--ink-faint);border-radius:5px;
+  background:var(--surface);
+  position:relative;margin:0;padding:0;
+  cursor:pointer;vertical-align:middle;flex-shrink:0;
+  box-sizing:border-box;
+}
+input[type="checkbox"]:checked{background:var(--primary);border-color:var(--primary);}
+input[type="checkbox"]:checked::after{
+  content:"";position:absolute;left:5px;top:1px;
+  width:5px;height:10px;
+  border:solid #fff;border-width:0 2px 2px 0;
+  transform:rotate(45deg);
+}
+input[type="checkbox"]:focus-visible{outline:2px solid var(--primary-tint);outline-offset:1px;}
+.repair-items-table input[type="checkbox"]{width:16px;height:16px;min-width:16px;min-height:16px;}
+.repair-items-table input[type="checkbox"]:checked::after{left:4px;top:0px;width:4px;height:9px;}
 
 .list-mgr-rows{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;}
 .list-mgr-row{display:flex;gap:8px;align-items:center;}
@@ -477,7 +507,9 @@ const state = {
   repairsStatsRange: { from:'', to:'' },
   repairsListRange: { from:'', to:'' },
   installsListRange: { from:'', to:'' },
-  selection: { repairs:new Set(), tanks:new Set(), installs:new Set(), trucks:new Set() }
+  selection: { repairs:new Set(), tanks:new Set(), installs:new Set(), trucks:new Set() },
+  page: { repairs:1 },
+  pageSize: { repairs:10 }
 };
 
 async function loadAll(){
@@ -1240,6 +1272,7 @@ function clearListRange(key){
   const sk = LIST_RANGE_STATE_KEY[key];
   if(!sk) return;
   state[sk] = { from:'', to:'' };
+  if(PAGINATED_KEYS.includes(key)) state.page[key] = 1;
   renderContent();
 }
 
@@ -1271,12 +1304,66 @@ function getFilteredModuleRows(key){
   return rows;
 }
 
+/* 分頁：目前僅維修工單啟用，之後要讓其他分頁也支援可以把 key 加進 PAGINATED_KEYS */
+const PAGINATED_KEYS = ['repairs'];
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+
+function getPagedRows(key){
+  const allRows = getFilteredModuleRows(key);
+  if(!PAGINATED_KEYS.includes(key)){
+    return { rows: allRows, allRows, page:1, pageSize: allRows.length||1, totalPages:1, totalRows: allRows.length };
+  }
+  const pageSize = state.pageSize[key] || 10;
+  const totalRows = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  let page = state.page[key] || 1;
+  if(page > totalPages) page = totalPages;
+  if(page < 1) page = 1;
+  state.page[key] = page;
+  const start = (page-1) * pageSize;
+  const rows = allRows.slice(start, start + pageSize);
+  return { rows, allRows, page, pageSize, totalPages, totalRows };
+}
+
+function setPageSize(key, size){
+  state.pageSize[key] = parseInt(size,10) || 10;
+  state.page[key] = 1;
+  renderContent();
+}
+
+function goToPage(key, page){
+  state.page[key] = page;
+  renderContent();
+  const wrap = document.querySelector('.table-wrap');
+  if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function renderPaginationBar(key, pageInfo){
+  if(!PAGINATED_KEYS.includes(key) || pageInfo.totalRows===0) return '';
+  const { page, totalPages, pageSize, totalRows } = pageInfo;
+  return `
+    <div class="pagination-bar">
+      <label style="display:flex;align-items:center;gap:6px;">每頁顯示
+        <select class="filter-select" onchange="app.setPageSize('${key}', this.value)">
+          ${PAGE_SIZE_OPTIONS.map(n=>`<option value="${n}" ${pageSize===n?'selected':''}>${n} 筆</option>`).join('')}
+        </select>
+      </label>
+      <div class="pagination-nav">
+        <button class="btn btn-ghost btn-sm" ${page<=1?'disabled':''} onclick="app.goToPage('${key}', ${page-1})">‹ 上一頁</button>
+        <span class="hint">第 ${page} / ${totalPages} 頁（共 ${totalRows} 筆）</span>
+        <button class="btn btn-ghost btn-sm" ${page>=totalPages?'disabled':''} onclick="app.goToPage('${key}', ${page+1})">下一頁 ›</button>
+      </div>
+    </div>`;
+}
+
 function renderModuleTab(key){
   const cfg = MODULES[key];
   if(key==='repairs' && state.repairsView==='stats'){
     return renderRepairStatsView();
   }
-  const rows = getFilteredModuleRows(key);
+  const pageInfo = getPagedRows(key);
+  const rows = pageInfo.rows;
+  const allFilteredRows = pageInfo.allRows;
   if(!state.selection[key]) state.selection[key] = new Set();
   const sel = state.selection[key];
   /* 選取中的 id 若已不在目前資料裡（例如已被刪除），清掉避免計數錯誤 */
@@ -1332,11 +1419,12 @@ function renderModuleTab(key){
         <input class="search-input" id="search_${key}" placeholder="${esc(cfg.searchPlaceholder)}" value="${esc(state.search[key])}">
         ${statusFilterHTML}
         ${rangeHTML}
-        <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${rows.length} 筆${selCount?`，已選取 ${selCount} 筆`:''}</span>
+        <span class="hint" style="color:var(--ink-faint);font-size:12px;">共 ${allFilteredRows.length} 筆${selCount?`，已選取 ${selCount} 筆`:''}</span>
       </div>
       <div class="table-wrap">
         <table><thead>${theadHTML}</thead><tbody>${bodyHTML}</tbody></table>
       </div>
+      ${renderPaginationBar(key, pageInfo)}
     </div>
   `;
 }
@@ -1354,6 +1442,7 @@ function wireModuleTabEvents(key){
   if(searchEl){
     searchEl.addEventListener('input', (e)=>{
       state.search[key] = e.target.value;
+      if(PAGINATED_KEYS.includes(key)) state.page[key] = 1;
       const pos = e.target.selectionStart;
       renderContent();
       const el2 = document.getElementById('search_'+key);
@@ -1362,14 +1451,18 @@ function wireModuleTabEvents(key){
   }
   const filterEl = document.getElementById('filter_'+key);
   if(filterEl){
-    filterEl.addEventListener('change', (e)=>{ state.filter[key]=e.target.value; renderContent(); });
+    filterEl.addEventListener('change', (e)=>{
+      state.filter[key]=e.target.value;
+      if(PAGINATED_KEYS.includes(key)) state.page[key] = 1;
+      renderContent();
+    });
   }
   const rangeStateKey = LIST_RANGE_STATE_KEY[key];
   if(rangeStateKey){
     const rFromEl = document.getElementById('list_range_from');
     const rToEl = document.getElementById('list_range_to');
-    if(rFromEl) rFromEl.addEventListener('change', e=>{ state[rangeStateKey].from = e.target.value; renderContent(); });
-    if(rToEl) rToEl.addEventListener('change', e=>{ state[rangeStateKey].to = e.target.value; renderContent(); });
+    if(rFromEl) rFromEl.addEventListener('change', e=>{ state[rangeStateKey].from = e.target.value; if(PAGINATED_KEYS.includes(key)) state.page[key] = 1; renderContent(); });
+    if(rToEl) rToEl.addEventListener('change', e=>{ state[rangeStateKey].to = e.target.value; if(PAGINATED_KEYS.includes(key)) state.page[key] = 1; renderContent(); });
   }
 }
 
@@ -1621,6 +1714,32 @@ function openFormModal(key, data, isCreate){
     </div>
   `);
   if(key==='repairs') updateRepairItemsCalc();
+  if(key==='repairs') wireRepairAutoStatus();
+}
+
+/* 自動辨識：維修工單只要「維修描述」與「維修人員」都有填寫，且目前狀況還沒設定或仍是待修/維修中，
+   就自動把「維修狀況」帶入「已完修」，避免忘記手動切換狀態 */
+const REPAIR_OPEN_STATUSES = ['', '待修', '維修中'];
+function applyRepairAutoStatus(){
+  const descEl = document.getElementById('fld_維修描述');
+  const engEl = document.getElementById('fld_維修人員1名稱');
+  const statusEl = document.getElementById('fld_維修狀況');
+  if(!descEl || !engEl || !statusEl) return;
+  const hasDesc = descEl.value.trim();
+  const hasEngineer = engEl.value.trim();
+  if(hasDesc && hasEngineer && REPAIR_OPEN_STATUSES.includes(statusEl.value)){
+    const hasOption = Array.from(statusEl.options).some(o=>o.value==='已完修');
+    if(hasOption){
+      statusEl.value = '已完修';
+      showToast('已偵測到維修描述與維修人員，自動將狀況設為「已完修」');
+    }
+  }
+}
+function wireRepairAutoStatus(){
+  const descEl = document.getElementById('fld_維修描述');
+  const engEl = document.getElementById('fld_維修人員1名稱');
+  if(descEl) descEl.addEventListener('input', applyRepairAutoStatus);
+  if(engEl) engEl.addEventListener('input', applyRepairAutoStatus);
 }
 
 async function saveForm(key, id){
@@ -1636,6 +1755,15 @@ async function saveForm(key, id){
   const formData = collectFormData(cfg.fields);
   STATION_ID_FIELDS.forEach(fk=>{ if(fk in formData) formData[fk] = fmtStationId(formData[fk]); });
   if(key==='repairs'){ formData['維修項目'] = collectRepairItems(); }
+
+  /* 保險機制：存檔時再次確認，若維修描述與維修人員都有值但狀況還沒改，自動設為已完修 */
+  if(key==='repairs'){
+    const hasDesc = (formData['維修描述']||'').trim();
+    const hasEngineer = (formData['維修人員1名稱']||'').trim();
+    if(hasDesc && hasEngineer && REPAIR_OPEN_STATUSES.includes((formData['維修狀況']||'').trim())){
+      if((state.repairStatuses||[]).includes('已完修')) formData['維修狀況'] = '已完修';
+    }
+  }
 
   /* 維修工單新增或編輯時，只要報修單號跟其他工單相同，就跳出提醒（可選擇仍要繼續） */
   if(key==='repairs'){
@@ -1732,7 +1860,7 @@ function toggleRowSelect(key, id, checked){
 
 function toggleSelectAllRows(key, checked){
   if(!state.selection[key]) state.selection[key] = new Set();
-  const rows = getFilteredModuleRows(key);
+  const rows = getPagedRows(key).rows;
   if(checked) rows.forEach(r=> state.selection[key].add(r.id));
   else rows.forEach(r=> state.selection[key].delete(r.id));
   renderContent();
@@ -2331,7 +2459,8 @@ window.app = {
   clearListRange, exportStatsPPT, enforceCheckboxLimit,
   cancelRepairDuplicate, confirmRepairDuplicateProceed,
   openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
-  quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex
+  quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex,
+  setPageSize, goToPage
 };
 
 /* ============ Init ============ */
