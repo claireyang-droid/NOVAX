@@ -1487,12 +1487,11 @@ function renderModuleTab(key){
   const tanksStatsHTML = key==='tanks' ? renderTanksStatsPanel() : '';
 
   const bodyHTML = rows.length ? rows.map(r=>`
-    <tr ${cfg.rowClick ? `class="row-clickable" onclick="app.openDetail('${key}','${r.id}')"` : ''}>
+    <tr class="row-clickable" onclick="app.openEdit('${key}','${r.id}')">
       <td onclick="event.stopPropagation()"><input type="checkbox" ${sel.has(r.id)?'checked':''} onclick="app.toggleRowSelect('${key}','${r.id}', this.checked)"></td>
       ${cfg.columns.map(c=>`<td>${c.render(r)}</td>`).join('')}
       <td onclick="event.stopPropagation()">
         <div class="row-actions">
-          ${cfg.rowClick ? '' : `<button class="btn btn-ghost btn-sm" onclick="app.openEdit('${key}','${r.id}')">編輯</button>`}
           <button class="btn btn-danger btn-sm" onclick="app.confirmDelete('${key}','${r.id}')">刪除</button>
         </div>
       </td>
@@ -1506,6 +1505,7 @@ function renderModuleTab(key){
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${selCount ? `<button class="btn btn-danger" onclick="app.confirmBatchDelete('${key}')">🗑 刪除選取的 ${selCount} 筆</button>` : ''}
         <button class="btn btn-ghost" onclick="app.openImport('${key}')">📥 匯入 Excel</button>
+        ${key==='trucks' ? `<button class="btn btn-ghost" onclick="app.exportModuleExcel('${key}')">📤 匯出 Excel</button>` : ''}
         <button class="btn btn-primary" onclick="app.openCreate('${key}')">＋ 新增${key==='trucks'?'領用紀錄':(key==='tanks'?'站點':(key==='installs'?'裝機':'工單'))}</button>
       </div>
     </div>
@@ -2225,6 +2225,29 @@ function parseSheetRows(ws, moduleKey){
   return {headerRow, dataRows};
 }
 
+/* 匯出指定模組的資料為 Excel 檔案，欄位使用中文標籤，陣列型欄位（例如多選）以「、」串接 */
+function exportModuleExcel(key){
+  const cfg = MODULES[key];
+  const rows = state[key] || [];
+  if(!rows.length){ showToast('目前沒有資料可以匯出', 'err'); return; }
+  const data = rows.map(r=>{
+    const obj = {};
+    cfg.fields.forEach(f=>{
+      let val = r[f.key];
+      if(Array.isArray(val)) val = val.join('、');
+      if(STATION_ID_FIELDS.includes(f.key) && val) val = fmtStationId(val);
+      obj[f.label] = (val===undefined || val===null) ? '' : val;
+    });
+    return obj;
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, cfg.title.slice(0,31));
+  const fname = `${cfg.title}_${todayISO()}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  showToast(`已匯出「${fname}」`);
+}
+
 function openImport(key){
   state.importCtx = {key};
   const input = document.getElementById('importFileInput');
@@ -2677,7 +2700,7 @@ function goTab(key){
 /* ============ Expose global app API for inline handlers ============ */
 window.app = {
   goTab, openCreate, openEdit, openDetail, saveForm, confirmDelete, doDelete, closeModal,
-  openImport, switchImportSheet, confirmImport,
+  openImport, switchImportSheet, confirmImport, exportModuleExcel,
   cancelImportDuplicate, resolveImportDuplicate,
   toggleRowSelect, toggleSelectAllRows, confirmBatchDelete, doBatchDelete,
   openListManager, addListItem, removeListItem, saveListManager,
