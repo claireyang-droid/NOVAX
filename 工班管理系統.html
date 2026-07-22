@@ -1344,21 +1344,21 @@ function computeTankStats(){
 
 function renderTanksStatsPanel(){
   const { counts, unset, total } = computeTankStats();
-  const cards = Object.entries(counts).map(([name,value])=>({name, value, color: TANK_STATUS_COLORS[name] || '#7A8B98'}));
-  if(unset>0) cards.push({name:'未設定', value:unset, color:'#B7C1C8'});
+  const cards = Object.entries(counts).map(([name,value])=>({name, value, key:name, color: TANK_STATUS_COLORS[name] || '#7A8B98'}));
+  if(unset>0) cards.push({name:'未設定', value:unset, key:'__unset__', color:'#B7C1C8'});
 
   return `
     <div class="section-head" style="margin-top:0;">
       <h2>🛢️ 桶槽清洗統計</h2>
-      <span class="hint">共 ${total} 個站點</span>
+      <span class="hint">共 ${total} 個站點・點方塊可查看是哪幾站</span>
     </div>
     <div class="stat-grid" style="margin-bottom:16px;">
-      <div class="stat-card">
+      <div class="stat-card" style="cursor:pointer;" onclick="app.openTankStatusStations('__all__')">
         <div class="stat-label">🧮 站點總數</div>
         <div class="stat-value">${total}<small> 站</small></div>
       </div>
       ${cards.map(c=>`
-        <div class="stat-card" style="border-left:4px solid ${c.color};">
+        <div class="stat-card" style="border-left:4px solid ${c.color};cursor:pointer;" onclick="app.openTankStatusStations('${esc(c.key)}')">
           <div class="stat-label"><span class="pie-dot" style="background:${c.color}"></span>${esc(c.name)}</div>
           <div class="stat-value">${c.value}<small> 站</small></div>
           <div class="stat-foot">佔比 ${total ? (c.value/total*100).toFixed(1) : '0.0'}%</div>
@@ -1372,6 +1372,40 @@ function renderTanksStatsPanel(){
       </div>
     </div>
   `;
+}
+
+/* 點桶槽清洗統計方塊：列出符合該狀態（或全部／未設定）的站點名單 */
+function openTankStatusStations(statusKey){
+  let matches, title;
+  if(statusKey==='__all__'){
+    matches = state.tanks.slice();
+    title = '全部站點';
+  } else if(statusKey==='__unset__'){
+    matches = state.tanks.filter(t=>!(t.status||'').trim());
+    title = '尚未設定狀態的站點';
+  } else {
+    matches = state.tanks.filter(t=>(t.status||'').trim()===statusKey);
+    title = `「${statusKey}」的站點`;
+  }
+  matches = [...matches].sort((a,b)=> String(a.station||'').localeCompare(String(b.station||''), 'zh-Hant'));
+
+  const rowsHTML = matches.length ? matches.map(t=>`
+    <div class="detail-row">
+      <div class="detail-label" style="cursor:pointer;" onclick="app.closeModal();app.openEdit('tanks','${t.id}')">${esc(t.station||'—')}${t.station_id?`<div class="cell-sub">${esc(fmtStationId(t.station_id))}</div>`:''}</div>
+      <div class="detail-value">${renderStatusSelect('tanks', t.id, t.status, MODULES.tanks.statusOptions||[], `app.openTankStatusStations('${esc(statusKey)}')`)}</div>
+    </div>`).join('') : `<div class="empty-state"><span class="emoji">🛢️</span>目前沒有符合的站點</div>`;
+
+  openModalHTML(`
+    <div class="modal-head">
+      <h3>🛢️ ${esc(title)}</h3>
+      <button class="modal-close" onclick="app.closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 10px;font-size:12px;color:var(--ink-faint);">共 ${matches.length} 個站點</p>
+      <div class="detail-list">${rowsHTML}</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="app.closeModal()">關閉</button></div>
+  `);
 }
 
 /* 找出指定維修品項在（目前統計區間內）分別是哪些站點維修使用的 */
@@ -2647,17 +2681,14 @@ function renderDispatchCalendar(){
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && !isRepairClosed(r) && fmtDate(r['派修日期'])===dateStr);
     const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
-    const leaveNames = leaveEngineersOnDate(dateStr);
     const isToday = dateStr === todayStr;
     const chipsHTML = [
       ...dispatchedRepairs.map(r=>`<div class="cal-chip cal-chip-repair" onclick="event.stopPropagation();app.openEdit('repairs','${r.id}')" title="${esc(r['客戶名稱']||'')}">🔧 ${esc(truncate(r['客戶名稱']||'—',6))}</div>`),
       ...assignedJobs.map(j=>`<div class="cal-chip cal-chip-job" onclick="event.stopPropagation();app.openEdit('pendingJobs','${j.id}')" title="${esc(j['站點客戶']||'')}">${esc(j['類型']||'其他')} ${esc(truncate(j['站點客戶']||'',5))}</div>`)
     ].join('');
-    const leaveHTML = leaveNames.length ? `<div class="cal-leave" title="${esc(leaveNames.join('、'))}">🌴 ${esc(leaveNames.join('、'))}</div>` : '';
     gridHTML += `<div class="cal-cell${isToday?' today':''}" onclick="app.openDayDetail('${dateStr}')">
       <div class="cal-date">${d}</div>
       <div class="cal-chips">${chipsHTML}</div>
-      ${leaveHTML}
     </div>`;
   });
 
@@ -2676,7 +2707,6 @@ function renderDispatchCalendar(){
 function openDayDetail(dateStr){
   const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && !isRepairClosed(r) && fmtDate(r['派修日期'])===dateStr);
   const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
-  const leaveNames = leaveEngineersOnDate(dateStr);
 
   const repairRows = dispatchedRepairs.length ? dispatchedRepairs.map(r=>`
     <div class="mini-row">
@@ -2690,19 +2720,13 @@ function openDayDetail(dateStr){
       <div style="text-align:right;">${renderStatusSelect('pendingJobs', j.id, j['狀態'], MODULES.pendingJobs.statusOptions||[], `app.openDayDetail('${dateStr}')`)}<div class="s">👷 ${esc(engineerListText(j['指派人員'])||'尚未指派')}</div></div>
     </div>`).join('') : `<div class="empty-state" style="padding:16px;">當天沒有安排的工作</div>`;
 
-  const leaveHTML = leaveNames.length
-    ? `<div class="tag-row" style="padding:2px 0 4px;">${leaveNames.map(n=>`<span class="tag-chip" style="background:var(--danger-tint);color:var(--danger);border-color:var(--danger);">🌴 ${esc(n)}</span>`).join('')}</div>`
-    : `<div class="cell-sub" style="padding:2px 0 4px;">當天沒有人請假</div>`;
-
   openModalHTML(`
     <div class="modal-head">
       <h3>📅 ${esc(dateStr)} 派工詳情</h3>
       <button class="modal-close" onclick="app.closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="panel-title-row" style="padding:0 0 6px;"><h3>🌴 當日請假</h3></div>
-      ${leaveHTML}
-      <div class="panel-title-row" style="padding:12px 0 6px;"><h3>🔧 派修工單（${dispatchedRepairs.length}）</h3></div>
+      <div class="panel-title-row" style="padding:0 0 6px;"><h3>🔧 派修工單（${dispatchedRepairs.length}）</h3></div>
       <div class="panel" style="box-shadow:none;">${repairRows}</div>
       <div class="panel-title-row" style="padding:12px 0 6px;"><h3>📋 待安排工作（${assignedJobs.length}）</h3></div>
       <div class="panel" style="box-shadow:none;">${jobRows}</div>
@@ -3293,7 +3317,8 @@ window.app = {
   openRepairItemCatalogManager, addRepairItemCatalog, removeRepairItemCatalog, saveRepairItemCatalog,
   quickSetStatus, openRepairItemStations, openRepairItemStationsByIndex,
   setPageSize, goToPage,
-  openCreateWithDefaults, openDayDetail, dispatchCalPrev, dispatchCalNext, dispatchCalToday
+  openCreateWithDefaults, openDayDetail, dispatchCalPrev, dispatchCalNext, dispatchCalToday,
+  openTankStatusStations
 };
 
 /* ============ Init ============ */
