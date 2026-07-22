@@ -670,13 +670,13 @@ function badge(status, fallbackLabel){
 }
 
 /* inline, in-table status dropdown — lets the user change status without opening the row */
-function renderStatusSelect(moduleKey, id, current, options){
+function renderStatusSelect(moduleKey, id, current, options, afterJS){
   const opts = options || [];
   const tone = statusTone(current);
   const cur = current || '';
   const extraOpt = (cur && !opts.includes(cur)) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : '';
   return `<select class="status-select status-select-${tone}" onclick="event.stopPropagation()"
-    onchange="event.stopPropagation();app.quickSetStatus('${moduleKey}','${id}', this.value)">
+    onchange="event.stopPropagation();app.quickSetStatus('${moduleKey}','${id}', this.value);${afterJS||''}">
     <option value="" ${!cur?'selected':''}>未設定</option>
     ${opts.map(o=>`<option value="${esc(o)}" ${cur===o?'selected':''}>${esc(o)}</option>`).join('')}
     ${extraOpt}
@@ -2679,15 +2679,15 @@ function openDayDetail(dateStr){
   const leaveNames = leaveEngineersOnDate(dateStr);
 
   const repairRows = dispatchedRepairs.length ? dispatchedRepairs.map(r=>`
-    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')">
-      <div><div class="t">🔧 ${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
-      <div style="text-align:right;">${badge(r['維修狀況'])}<div class="s">👷 ${esc(engineerListText(r['維修人員1名稱'])||'尚未指派')}</div></div>
+    <div class="mini-row">
+      <div style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')"><div class="t">🔧 ${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',30))}</div></div>
+      <div style="text-align:right;">${renderStatusSelect('repairs', r.id, r['維修狀況'], state.repairStatuses||[], `app.openDayDetail('${dateStr}')`)}<div class="s">👷 ${esc(engineerListText(r['維修人員1名稱'])||'尚未指派')}</div></div>
     </div>`).join('') : `<div class="empty-state" style="padding:16px;">當天沒有派修工單</div>`;
 
   const jobRows = assignedJobs.length ? assignedJobs.map(j=>`
-    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('pendingJobs','${j.id}')">
-      <div><div class="t">${esc(j['類型']||'其他')}－${esc(j['站點客戶']||'—')}</div><div class="s">${esc(truncate(j['說明']||'',30))}</div></div>
-      <div style="text-align:right;">${badge(j['狀態'],'待安排')}<div class="s">👷 ${esc(engineerListText(j['指派人員'])||'尚未指派')}</div></div>
+    <div class="mini-row">
+      <div style="cursor:pointer;" onclick="app.openEdit('pendingJobs','${j.id}')"><div class="t">${esc(j['類型']||'其他')}－${esc(j['站點客戶']||'—')}</div><div class="s">${esc(truncate(j['說明']||'',30))}</div></div>
+      <div style="text-align:right;">${renderStatusSelect('pendingJobs', j.id, j['狀態'], MODULES.pendingJobs.statusOptions||[], `app.openDayDetail('${dateStr}')`)}<div class="s">👷 ${esc(engineerListText(j['指派人員'])||'尚未指派')}</div></div>
     </div>`).join('') : `<div class="empty-state" style="padding:16px;">當天沒有安排的工作</div>`;
 
   const leaveHTML = leaveNames.length
@@ -2722,9 +2722,9 @@ function renderDispatchTab(){
     .sort((a,b)=> getRepairDate(a).localeCompare(getRepairDate(b)));
 
   const unrepairedRows = unrepaired.length ? unrepaired.map(r=>`
-    <div class="mini-row" style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')">
-      <div><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',34))}</div></div>
-      <div style="text-align:right;">${badge(r['維修狀況'])}
+    <div class="mini-row">
+      <div style="cursor:pointer;" onclick="app.openEdit('repairs','${r.id}')"><div class="t">${esc(r['客戶名稱']||'—')}</div><div class="s">${esc(truncate(r['狀況描述']||'',34))}</div></div>
+      <div style="text-align:right;">${renderStatusSelect('repairs', r.id, r['維修狀況'], state.repairStatuses||[])}
         <div class="s">${r['派修']==='已派修' ? ('👷 '+esc(dispatchDayLabel(r['派修日期']))) : '尚未派修'}</div>
       </div>
     </div>`).join('') : `<div class="empty-state"><span class="emoji">🎉</span>目前沒有尚未維修的工單</div>`;
