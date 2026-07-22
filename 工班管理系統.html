@@ -708,6 +708,14 @@ function fmtDate(d){
   if(!d) return '';
   return String(d).slice(0,10);
 }
+/* 顯示日期＋時間（給請假單這類需要選時間的欄位用），沒有時間部分就只顯示日期 */
+function fmtDateTime(d){
+  if(!d) return '';
+  const s = String(d);
+  const datePart = s.slice(0,10);
+  const timeMatch = s.slice(11,16);
+  return /^\d{2}:\d{2}$/.test(timeMatch) ? `${datePart} ${timeMatch}` : datePart;
+}
 function todayISO(){
   const d = new Date();
   return d.toISOString().slice(0,10);
@@ -729,6 +737,15 @@ function dispatchDayLabel(dateStr){
   if(d===todayISO()) return '今日派修';
   if(d===tomorrowISO()) return '明日派修';
   return d + ' 派修';
+}
+
+/* 檢查字串是否「看起來像」一個合理日期（必須有4位數年份），
+   用來過濾匯入資料中把數量/序號等雜值誤填進日期欄位的情況（例如結束日期存成 "0" 或 "1"） */
+function isPlausibleDateStr(s){
+  if(s===null || s===undefined) return false;
+  const str = String(s).trim();
+  if(!str) return false;
+  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(str) || /^\d{4}年/.test(str);
 }
 
 /* 展開日期區間內的每一天（含頭尾），供請假比對與行事曆判斷使用 */
@@ -753,11 +770,11 @@ function leaveEngineersInRange(fromStr, toStr){
   datesInRange(fromStr, toStr).forEach(d=> leaveEngineersOnDate(d).forEach(n=>set.add(n)));
   return Array.from(set);
 }
-/* 待安排工作是否涵蓋某一天（用預定開始/結束日期判斷；沒有結束日期就視為單日） */
+/* 待安排工作是否涵蓋某一天（用預定開始/結束日期判斷；沒有結束日期或結束日期是無效雜值就視為單日） */
 function jobCoversDate(j, dateStr){
   const from = normDate(j['開始日期']);
   if(!from) return false;
-  const to = normDate(j['結束日期']) || from;
+  const to = isPlausibleDateStr(j['結束日期']) ? (normDate(j['結束日期']) || from) : from;
   const d = normDate(dateStr);
   return d>=from && d<=to;
 }
@@ -980,8 +997,8 @@ const MODULES = {
     statusField: null,
     fields: [
       {key:'engineers', label:'請假人員（可複選）', type:'multiselect', dynamicSource:'engineers', full:true},
-      {key:'fromDate', label:'開始日期', type:'date', required:true, col:1},
-      {key:'toDate', label:'結束日期', type:'date', required:true, col:1},
+      {key:'fromDate', label:'開始時間', type:'datetime-local', required:true, col:1},
+      {key:'toDate', label:'結束時間', type:'datetime-local', required:true, col:1},
       {key:'reason', label:'請假事由', type:'text', col:1},
       {key:'note', label:'備註', type:'textarea', full:true},
     ],
@@ -990,7 +1007,7 @@ const MODULES = {
         const items = Array.isArray(r.engineers) ? r.engineers : [];
         return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '<span class="cell-sub">尚未選擇</span>';
       }},
-      {key:'range', label:'請假區間', render:r=>`<span class="cell-mono">${esc(fmtDate(r.fromDate)||'—')} ～ ${esc(fmtDate(r.toDate)||'—')}</span>`},
+      {key:'range', label:'請假區間', render:r=>`<span class="cell-mono">${esc(fmtDateTime(r.fromDate)||'—')} ～ ${esc(fmtDateTime(r.toDate)||'—')}</span>`},
       {key:'reason', label:'事由', render:r=>`<span class="cell-plain">${esc(truncate(r.reason||'',30) || '—')}</span>`},
     ]
   },
@@ -1019,7 +1036,8 @@ const MODULES = {
       {key:'狀態', label:'狀態', render:r=>renderStatusSelect('pendingJobs', r.id, r['狀態'], MODULES.pendingJobs.statusOptions||[])},
       {key:'站點客戶', label:'站點／客戶', render:r=>`<span class="cell-main">${esc(r['站點客戶']||'—')}</span>`},
       {key:'預定日期', label:'預定日期', render:r=>{
-        const from = r['開始日期'], to = r['結束日期'];
+        const from = r['開始日期'];
+        const to = isPlausibleDateStr(r['結束日期']) ? r['結束日期'] : '';
         if(!from && !to) return '<span class="cell-sub">尚未排定</span>';
         if(from && to && fmtDate(from)!==fmtDate(to)) return `<span class="cell-mono">${esc(fmtDate(from))} ～ ${esc(fmtDate(to))}</span>`;
         return `<span class="cell-mono">${esc(fmtDate(from||to))}</span>`;
@@ -1743,6 +1761,16 @@ function getFilteredModuleRows(key){
   if(key==='repairs'){
     rows = [...rows].sort((a,b)=> String(b['報修單號']||'').localeCompare(String(a['報修單號']||''), undefined, {numeric:true}));
   }
+  if(key==='pendingJobs'){
+    rows = [...rows].sort((a,b)=>{
+      const da = normDate(a['開始日期']), db = normDate(b['開始日期']);
+      if(!da && !db) return 0;
+      if(!da) return 1;   // 尚未排定日期的排到最後面
+      if(!db) return -1;
+      if(da !== db) return da.localeCompare(db);
+      return String(a['站點客戶']||'').localeCompare(String(b['站點客戶']||''));
+    });
+  }
   return rows;
 }
 
@@ -2079,7 +2107,7 @@ function renderField(f, data){
       <label><input type="checkbox" value="${esc(v)}" data-multi="${f.key}" checked${limitAttr}> ${esc(v)}（匯入值）</label>
     `).join('')}</div>${leaveHintHTML}`;
   } else {
-    inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':'text'))}" id="fld_${f.key}" value="${esc(val||'')}">`;
+    inputHTML = `<input type="${f.type==='number'?'number':(f.type==='date'?'date':(f.type==='time'?'time':(f.type==='datetime-local'?'datetime-local':'text')))}" id="fld_${f.key}" value="${esc(val||'')}">`;
   }
   return `<div class="${wrapClass}"><label>${esc(f.label)}${f.required?' *':''}</label>${inputHTML}</div>`;
 }
@@ -2123,6 +2151,8 @@ function openDetail(key, id){
       display = (Array.isArray(val) && val.length) ? val.map(v=>`<span class="badge badge-grey">${esc(v)}</span>`).join(' ') : '<span class="detail-empty">—</span>';
     } else if(f.type==='date'){
       display = val ? `<span class="cell-mono">${esc(fmtDate(val))}</span>` : '<span class="detail-empty">—</span>';
+    } else if(f.type==='datetime-local'){
+      display = val ? `<span class="cell-mono">${esc(fmtDateTime(val))}</span>` : '<span class="detail-empty">—</span>';
     } else if(f.key==='照片' && val){
       display = `<a href="${esc(val)}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;">開啟連結 ↗</a>`;
     } else if(STATION_ID_FIELDS.includes(f.key)){
@@ -2615,7 +2645,7 @@ function renderDispatchCalendar(){
   cells.forEach(d=>{
     if(d===null){ gridHTML += `<div class="cal-cell empty"></div>`; return; }
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
+    const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && !isRepairClosed(r) && fmtDate(r['派修日期'])===dateStr);
     const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
     const leaveNames = leaveEngineersOnDate(dateStr);
     const isToday = dateStr === todayStr;
@@ -2644,7 +2674,7 @@ function renderDispatchCalendar(){
 
 /* 點某一天：顯示當天派修工單／待安排工作／請假人員，並提供快速新增入口（可自動帶入該日期） */
 function openDayDetail(dateStr){
-  const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
+  const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && !isRepairClosed(r) && fmtDate(r['派修日期'])===dateStr);
   const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
   const leaveNames = leaveEngineersOnDate(dateStr);
 
@@ -2679,7 +2709,7 @@ function openDayDetail(dateStr){
     </div>
     <div class="modal-foot" style="flex-wrap:wrap;">
       <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
-      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('leaves', {fromDate:'${dateStr}', toDate:'${dateStr}'})">🌴 新增請假單</button>
+      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('leaves', {fromDate:'${dateStr}T00:00', toDate:'${dateStr}T23:59'})">🌴 新增請假單</button>
       <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('pendingJobs', {'開始日期':'${dateStr}','結束日期':'${dateStr}','狀態':'已安排'})">📋 新增待安排工作</button>
       <button class="btn btn-primary" onclick="app.openCreateWithDefaults('repairs', {'派修':'已派修','派修日期':'${dateStr}'})">🔧 新增派修工單</button>
     </div>
