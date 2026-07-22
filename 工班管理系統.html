@@ -731,6 +731,37 @@ function dispatchDayLabel(dateStr){
   return d + ' 派修';
 }
 
+/* 展開日期區間內的每一天（含頭尾），供請假比對與行事曆判斷使用 */
+function datesInRange(fromStr, toStr){
+  const from = normDate(fromStr);
+  const to = normDate(toStr) || from;
+  if(!from) return [];
+  const list = [];
+  let cur = new Date(from+'T00:00:00');
+  const end = new Date(to+'T00:00:00');
+  let guard = 0;
+  while(cur <= end && guard < 400){
+    list.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`);
+    cur.setDate(cur.getDate()+1);
+    guard++;
+  }
+  return list;
+}
+/* 某個日期區間內，任一天有請假紀錄的人員名單（聯集） */
+function leaveEngineersInRange(fromStr, toStr){
+  const set = new Set();
+  datesInRange(fromStr, toStr).forEach(d=> leaveEngineersOnDate(d).forEach(n=>set.add(n)));
+  return Array.from(set);
+}
+/* 待安排工作是否涵蓋某一天（用預定開始/結束日期判斷；沒有結束日期就視為單日） */
+function jobCoversDate(j, dateStr){
+  const from = normDate(j['開始日期']);
+  if(!from) return false;
+  const to = normDate(j['結束日期']) || from;
+  const d = normDate(dateStr);
+  return d>=from && d<=to;
+}
+
 /* 判斷某位工程人員在某日期是否處於請假單所登記的區間內 */
 function isEngineerOnLeave(name, dateStr){
   if(!name || !dateStr) return false;
@@ -971,12 +1002,13 @@ const MODULES = {
     searchPlaceholder: '搜尋站點、客戶、工作說明…',
     statusField: '狀態',
     statusOptions: ['待安排','已安排','已完成'],
-    dateField: '預定日期',
+    dateField: '開始日期',
     fields: [
       {key:'類型', label:'工作類型', type:'select', dynamicSource:'jobTypes', required:true, col:1},
       {key:'狀態', label:'狀態', type:'select', options:['待安排','已安排','已完成'], col:1},
       {key:'站點客戶', label:'站點／客戶名稱', type:'text', col:1},
-      {key:'預定日期', label:'預定日期', type:'date', col:1},
+      {key:'開始日期', label:'預定開始日期', type:'date', col:1},
+      {key:'結束日期', label:'預定結束日期', type:'date', col:1},
       {key:'所需資源', label:'所需資源（可複選）', type:'multiselect', options:['抽料','吊車','自走車','桶槽'], full:true},
       {key:'指派人員', label:'指派人員（最多選 2 位，已請假者不會出現）', type:'multiselect', dynamicSource:'engineers', maxSelect:2, full:true, leaveAware:true},
       {key:'說明', label:'工作說明', type:'textarea', full:true},
@@ -986,7 +1018,12 @@ const MODULES = {
       {key:'類型', label:'類型', render:r=>`<span class="badge badge-grey">${esc(r['類型']||'其他')}</span>`},
       {key:'狀態', label:'狀態', render:r=>renderStatusSelect('pendingJobs', r.id, r['狀態'], MODULES.pendingJobs.statusOptions||[])},
       {key:'站點客戶', label:'站點／客戶', render:r=>`<span class="cell-main">${esc(r['站點客戶']||'—')}</span>`},
-      {key:'預定日期', label:'預定日期', render:r=> r['預定日期'] ? `<span class="cell-mono">${esc(fmtDate(r['預定日期']))}</span>` : '<span class="cell-sub">尚未排定</span>'},
+      {key:'預定日期', label:'預定日期', render:r=>{
+        const from = r['開始日期'], to = r['結束日期'];
+        if(!from && !to) return '<span class="cell-sub">尚未排定</span>';
+        if(from && to && fmtDate(from)!==fmtDate(to)) return `<span class="cell-mono">${esc(fmtDate(from))} ～ ${esc(fmtDate(to))}</span>`;
+        return `<span class="cell-mono">${esc(fmtDate(from||to))}</span>`;
+      }},
       {key:'所需資源', label:'所需資源', render:r=>{
         const items = Array.isArray(r['所需資源']) ? r['所需資源'] : [];
         return items.length ? `<div class="tag-row">${items.map(i=>`<span class="tag-chip">${esc(i)}</span>`).join('')}</div>` : '<span class="cell-sub">—</span>';
@@ -2156,7 +2193,7 @@ function openFormModal(key, data, isCreate){
   if(key==='repairs') wireRepairDispatch();
   if(key==='repairs') wireRepairDateAutoFill();
   if(key==='repairs') wireEngineerLeaveFilter('派修日期','維修人員1名稱');
-  if(key==='pendingJobs') wireEngineerLeaveFilter('預定日期','指派人員');
+  if(key==='pendingJobs') wireEngineerLeaveFilter('開始日期','指派人員','結束日期');
 }
 
 /* 讓行事曆／設定頁能開啟「已預先帶入部分欄位」的新增表單，例如點某天的日期就直接帶入日期欄位 */
@@ -2260,13 +2297,15 @@ function wireRepairDispatch(){
 
 /* 派工自動排除請假人員：日期欄位變動時，重新計算當天請假名單，
    把請假中的人員從可指派複選清單裡「整個隱藏」（不只是變灰），並在下方提示目前請假的人是誰 */
-function applyEngineerLeaveFilter(dateKey, engKey){
+function applyEngineerLeaveFilter(dateKey, engKey, endDateKey){
   const dateEl = document.getElementById('fld_'+dateKey);
+  const endEl = endDateKey ? document.getElementById('fld_'+endDateKey) : null;
   const hintEl = document.getElementById('leaveHint_'+engKey);
   const boxes = document.querySelectorAll(`[data-multi="${engKey}"]`);
   if(!boxes.length) return;
-  const dateStr = dateEl ? dateEl.value : '';
-  const onLeave = dateStr ? leaveEngineersOnDate(dateStr) : [];
+  const fromStr = dateEl ? dateEl.value : '';
+  const toStr = (endEl && endEl.value) ? endEl.value : fromStr;
+  const onLeave = fromStr ? leaveEngineersInRange(fromStr, toStr) : [];
   boxes.forEach(cb=>{
     const label = cb.closest('label');
     if(!label) return;
@@ -2278,13 +2317,16 @@ function applyEngineerLeaveFilter(dateKey, engKey){
     }
   });
   if(hintEl){
-    hintEl.textContent = onLeave.length ? `📌 ${dateStr} 請假中，已自動隱藏：${onLeave.join('、')}` : '';
+    const rangeLabel = fromStr ? (toStr && toStr!==fromStr ? `${fromStr} ～ ${toStr}` : fromStr) : '';
+    hintEl.textContent = onLeave.length ? `📌 ${rangeLabel} 期間有人請假，已自動隱藏：${onLeave.join('、')}` : '';
   }
 }
-function wireEngineerLeaveFilter(dateKey, engKey){
+function wireEngineerLeaveFilter(dateKey, engKey, endDateKey){
   const dateEl = document.getElementById('fld_'+dateKey);
-  if(dateEl) dateEl.addEventListener('change', ()=>applyEngineerLeaveFilter(dateKey, engKey));
-  applyEngineerLeaveFilter(dateKey, engKey);
+  const endEl = endDateKey ? document.getElementById('fld_'+endDateKey) : null;
+  if(dateEl) dateEl.addEventListener('change', ()=>applyEngineerLeaveFilter(dateKey, engKey, endDateKey));
+  if(endEl) endEl.addEventListener('change', ()=>applyEngineerLeaveFilter(dateKey, engKey, endDateKey));
+  applyEngineerLeaveFilter(dateKey, engKey, endDateKey);
 }
 
 async function saveForm(key, id){
@@ -2574,7 +2616,7 @@ function renderDispatchCalendar(){
     if(d===null){ gridHTML += `<div class="cal-cell empty"></div>`; return; }
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
-    const assignedJobs = (state.pendingJobs||[]).filter(j=>j['預定日期'] && fmtDate(j['預定日期'])===dateStr);
+    const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
     const leaveNames = leaveEngineersOnDate(dateStr);
     const isToday = dateStr === todayStr;
     const chipsHTML = [
@@ -2603,7 +2645,7 @@ function renderDispatchCalendar(){
 /* 點某一天：顯示當天派修工單／待安排工作／請假人員，並提供快速新增入口（可自動帶入該日期） */
 function openDayDetail(dateStr){
   const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && fmtDate(r['派修日期'])===dateStr);
-  const assignedJobs = (state.pendingJobs||[]).filter(j=>j['預定日期'] && fmtDate(j['預定日期'])===dateStr);
+  const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
   const leaveNames = leaveEngineersOnDate(dateStr);
 
   const repairRows = dispatchedRepairs.length ? dispatchedRepairs.map(r=>`
@@ -2638,7 +2680,7 @@ function openDayDetail(dateStr){
     <div class="modal-foot" style="flex-wrap:wrap;">
       <button class="btn btn-ghost" onclick="app.closeModal()">關閉</button>
       <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('leaves', {fromDate:'${dateStr}', toDate:'${dateStr}'})">🌴 新增請假單</button>
-      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('pendingJobs', {'預定日期':'${dateStr}','狀態':'已安排'})">📋 新增待安排工作</button>
+      <button class="btn btn-ghost" onclick="app.openCreateWithDefaults('pendingJobs', {'開始日期':'${dateStr}','結束日期':'${dateStr}','狀態':'已安排'})">📋 新增待安排工作</button>
       <button class="btn btn-primary" onclick="app.openCreateWithDefaults('repairs', {'派修':'已派修','派修日期':'${dateStr}'})">🔧 新增派修工單</button>
     </div>
   `);
@@ -2660,7 +2702,7 @@ function renderDispatchTab(){
   return `
     <div class="section-head" style="margin-top:0;">
       <h2>🗓️ 派工行事曆</h2>
-      <span class="hint">依維修工單的「派修日期」與待安排工作的「預定日期」自動彙整；派工時會自動比對請假單，當天請假的人員不會出現在指派名單中</span>
+      <span class="hint">依維修工單的「派修日期」與待安排工作的「預定日期區間」自動彙整；派工時會自動比對請假單，當天請假的人員不會出現在指派名單中</span>
     </div>
     <div class="panel" style="padding:14px;">
       ${renderDispatchCalendar()}
