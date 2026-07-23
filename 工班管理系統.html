@@ -402,27 +402,32 @@ input[type="checkbox"]:focus-visible{outline:2px solid var(--primary-tint);outli
 /* ---------- 派工行事曆 (Dispatch calendar) ---------- */
 .cal-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
 .cal-title{font-weight:800;font-size:15px;color:var(--primary-dark);flex:1;text-align:center;min-width:110px;}
-.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(96px,1fr));gap:6px;overflow-x:auto;}
+.cal-weekdays{display:grid;grid-template-columns:repeat(7,minmax(40px,1fr));overflow-x:auto;}
 .cal-weekday{text-align:center;font-size:11.5px;font-weight:700;color:var(--ink-soft);padding:4px 0;}
-.cal-cell{
-  border:1px solid var(--border);border-radius:8px;padding:6px;min-height:78px;
-  background:var(--bg);cursor:pointer;display:flex;flex-direction:column;gap:4px;transition:border-color .15s,background .15s;
+.cal-grid{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:8px;overflow:hidden;overflow-x:auto;}
+.cal-week{position:relative;display:grid;grid-template-columns:repeat(7,minmax(40px,1fr));grid-template-rows:19px;grid-auto-rows:19px;border-top:1px solid var(--border);}
+.cal-week:first-child{border-top:none;}
+.cal-daycell{
+  border-right:1px solid var(--border);padding:3px 3px 2px;cursor:pointer;background:var(--bg);transition:background .15s;
 }
-.cal-cell:hover{border-color:var(--primary);background:#fff;}
-.cal-cell.empty{border:none;background:transparent;cursor:default;}
-.cal-cell.today{border-color:var(--accent);background:var(--accent-tint);}
-.cal-date{font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--ink-soft);}
-.cal-cell.today .cal-date{color:var(--warn);}
-.cal-chips{display:flex;flex-direction:column;gap:3px;}
-.cal-chip{
-  font-size:10.5px;font-weight:600;padding:2px 5px;border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+.cal-daycell:last-child{border-right:none;}
+.cal-daycell:hover{background:#fff;}
+.cal-daycell.other-month{background:#f2f1ee;}
+.cal-daycell.other-month .cal-date{color:var(--ink-faint);}
+.cal-daycell.today{background:var(--accent-tint);}
+.cal-date{font-family:var(--font-mono);font-size:11px;font-weight:700;color:var(--ink-soft);}
+.cal-daycell.today .cal-date{color:var(--warn);}
+.cal-bar{
+  margin:0;padding:2px 6px;font-size:10px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  cursor:pointer;align-self:start;line-height:15px;
 }
-.cal-chip-repair{background:var(--primary-tint);color:var(--primary-dark);}
-.cal-chip-job{background:var(--accent-tint);color:#8a5a10;}
-.cal-leave{font-size:10.5px;color:var(--danger);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.cal-bar.r-start{border-top-left-radius:5px;border-bottom-left-radius:5px;margin-left:2px;}
+.cal-bar.r-end{border-top-right-radius:5px;border-bottom-right-radius:5px;margin-right:2px;}
+.cal-bar-repair{background:var(--primary);}
+.cal-bar-teardown{background:#4a90d9;}
+.cal-bar-site{background:#3f51b5;}
 @media (max-width:640px){
-  .cal-grid{grid-template-columns:repeat(7,minmax(76px,1fr));}
-  .cal-cell{min-height:64px;padding:4px;}
+  .cal-bar{font-size:9px;padding:2px 4px;}
 }
 
 /* ---------- Overview two-col ---------- */
@@ -2661,36 +2666,106 @@ function dispatchCalPrev(){ dispatchCalNorm(); state.dispatchCal.month--; dispat
 function dispatchCalNext(){ dispatchCalNorm(); state.dispatchCal.month++; dispatchCalNorm(); renderContent(); }
 function dispatchCalToday(){ state.dispatchCal = { year:new Date().getFullYear(), month:new Date().getMonth() }; renderContent(); }
 
+/* 把某個 Date 物件轉成 YYYY-MM-DD 字串（用本地時間，避免時區位移） */
+function calDateStr(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+/* 彙整行事曆需要顯示的所有「事件」（已派修工單＋待安排工作），只取與指定日期區間有重疊的資料。
+   每筆事件都有 start/end（YYYY-MM-DD），待安排工作若有預定區間就會跨天顯示成同一條色條 */
+function buildCalEvents(rangeStartStr, rangeEndStr){
+  const events = [];
+  state.repairs.forEach(r=>{
+    if(r['派修']!=='已派修' || isRepairClosed(r)) return;
+    const d = fmtDate(r['派修日期']);
+    if(!d || d < rangeStartStr || d > rangeEndStr) return;
+    events.push({
+      id:'r_'+r.id, start:d, end:d,
+      label:`🔧 ${r['客戶名稱']||'—'}`,
+      cls:'cal-bar-repair',
+      onclick:`event.stopPropagation();app.openEdit('repairs','${r.id}')`
+    });
+  });
+  (state.pendingJobs||[]).forEach(j=>{
+    const from = normDate(j['開始日期']);
+    if(!from) return;
+    const to = isPlausibleDateStr(j['結束日期']) ? (normDate(j['結束日期']) || from) : from;
+    if(to < rangeStartStr || from > rangeEndStr) return;
+    const isTeardown = (j['類型']||'')==='拆機';
+    events.push({
+      id:'j_'+j.id, start:from, end:to,
+      label:`${j['類型']||'其他'}｜${j['站點客戶']||''}`,
+      cls: isTeardown ? 'cal-bar-teardown' : 'cal-bar-site',
+      onclick:`event.stopPropagation();app.openEdit('pendingJobs','${j.id}')`
+    });
+  });
+  return events;
+}
+
+/* 幫事件排「列」（lane）：同一列裡的事件彼此不會有日期重疊，讓跨天事件可以連成一條橫向色條，
+   且同一筆事件跨過好幾週時，每週都會被排在同一列，視覺上才會像是同一條 */
+function assignCalLanes(events){
+  const sorted = [...events].sort((a,b)=> a.start.localeCompare(b.start) || b.end.localeCompare(a.end));
+  const laneEnds = [];
+  sorted.forEach(ev=>{
+    let lane = laneEnds.findIndex(endStr => endStr < ev.start);
+    if(lane === -1){ lane = laneEnds.length; laneEnds.push(ev.end); }
+    else { laneEnds[lane] = ev.end; }
+    ev.lane = lane;
+  });
+  return sorted;
+}
+
 function renderDispatchCalendar(){
   dispatchCalNorm();
   const { year, month } = state.dispatchCal;
-  const first = new Date(year, month, 1);
-  const startWeekday = first.getDay();
   const daysInMonth = new Date(year, month+1, 0).getDate();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const endWeekday = new Date(year, month, daysInMonth).getDay();
+  const gridStart = new Date(year, month, 1 - startWeekday);
+  const gridEnd = new Date(year, month, daysInMonth + (6 - endWeekday));
+
+  const dayList = [];
+  for(let d=new Date(gridStart); d<=gridEnd; d.setDate(d.getDate()+1)) dayList.push(new Date(d));
+
+  const gridStartStr = calDateStr(dayList[0]);
+  const gridEndStr = calDateStr(dayList[dayList.length-1]);
   const todayStr = todayISO();
-  const cells = [];
-  for(let i=0;i<startWeekday;i++) cells.push(null);
-  for(let d=1; d<=daysInMonth; d++) cells.push(d);
-  while(cells.length % 7 !== 0) cells.push(null);
+  const events = assignCalLanes(buildCalEvents(gridStartStr, gridEndStr));
 
   const weekHeaders = ['日','一','二','三','四','五','六'];
-  let gridHTML = weekHeaders.map(w=>`<div class="cal-weekday">${w}</div>`).join('');
+  const headerHTML = weekHeaders.map(w=>`<div class="cal-weekday">${w}</div>`).join('');
 
-  cells.forEach(d=>{
-    if(d===null){ gridHTML += `<div class="cal-cell empty"></div>`; return; }
-    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dispatchedRepairs = state.repairs.filter(r=>r['派修']==='已派修' && !isRepairClosed(r) && fmtDate(r['派修日期'])===dateStr);
-    const assignedJobs = (state.pendingJobs||[]).filter(j=>jobCoversDate(j, dateStr));
-    const isToday = dateStr === todayStr;
-    const chipsHTML = [
-      ...dispatchedRepairs.map(r=>`<div class="cal-chip cal-chip-repair" onclick="event.stopPropagation();app.openEdit('repairs','${r.id}')" title="${esc(r['客戶名稱']||'')}">🔧 ${esc(truncate(r['客戶名稱']||'—',6))}</div>`),
-      ...assignedJobs.map(j=>`<div class="cal-chip cal-chip-job" onclick="event.stopPropagation();app.openEdit('pendingJobs','${j.id}')" title="${esc(j['站點客戶']||'')}">${esc(j['類型']||'其他')} ${esc(truncate(j['站點客戶']||'',5))}</div>`)
-    ].join('');
-    gridHTML += `<div class="cal-cell${isToday?' today':''}" onclick="app.openDayDetail('${dateStr}')">
-      <div class="cal-date">${d}</div>
-      <div class="cal-chips">${chipsHTML}</div>
-    </div>`;
-  });
+  let weeksHTML = '';
+  for(let w=0; w<dayList.length/7; w++){
+    const weekDays = dayList.slice(w*7, w*7+7);
+    const weekStartStr = calDateStr(weekDays[0]);
+    const weekEndStr = calDateStr(weekDays[6]);
+    const weekEvents = events.filter(ev => ev.end >= weekStartStr && ev.start <= weekEndStr);
+
+    const usedLanes = Array.from(new Set(weekEvents.map(ev=>ev.lane))).sort((a,b)=>a-b);
+    const laneRow = {}; usedLanes.forEach((l,i)=> laneRow[l] = i+2); // row 1 保留給日期數字
+
+    const dayCellsHTML = weekDays.map((d,i)=>{
+      const dStr = calDateStr(d);
+      const inMonth = d.getMonth()===month;
+      const isToday = dStr === todayStr;
+      return `<div class="cal-daycell${inMonth?'':' other-month'}${isToday?' today':''}" style="grid-column:${i+1};grid-row:1/-1;" onclick="app.openDayDetail('${dStr}')">
+        <div class="cal-date">${d.getDate()}</div>
+      </div>`;
+    }).join('');
+
+    const barsHTML = weekEvents.map(ev=>{
+      const dispStart = ev.start < weekStartStr ? weekStartStr : ev.start;
+      const dispEnd = ev.end > weekEndStr ? weekEndStr : ev.end;
+      const colStart = new Date(dispStart+'T00:00:00').getDay() + 1;
+      const colEnd = new Date(dispEnd+'T00:00:00').getDay() + 2;
+      const roundCls = `${dispStart===ev.start?'r-start':''} ${dispEnd===ev.end?'r-end':''}`;
+      return `<div class="cal-bar ${ev.cls} ${roundCls}" style="grid-column:${colStart} / ${colEnd};grid-row:${laneRow[ev.lane]};" title="${esc(ev.label)}" onclick="${ev.onclick}">${esc(ev.label)}</div>`;
+    }).join('');
+
+    weeksHTML += `<div class="cal-week">${dayCellsHTML}${barsHTML}</div>`;
+  }
 
   return `
     <div class="cal-toolbar">
@@ -2699,7 +2774,8 @@ function renderDispatchCalendar(){
       <button class="btn btn-ghost btn-sm" onclick="app.dispatchCalNext()">下個月 ›</button>
       <button class="btn btn-ghost btn-sm" onclick="app.dispatchCalToday()">回到今天</button>
     </div>
-    <div class="cal-grid">${gridHTML}</div>
+    <div class="cal-weekdays">${headerHTML}</div>
+    <div class="cal-grid">${weeksHTML}</div>
   `;
 }
 
